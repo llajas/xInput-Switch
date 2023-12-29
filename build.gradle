@@ -1,0 +1,72 @@
+buildscript {
+    ext.kotlin_version = '1.5.10'
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.0.10'
+    id 'org.jetbrains.kotlin.jvm' version '1.5.10'
+}
+
+group 'com.laurensprojects'
+version '1.0-SNAPSHOT'
+
+mainClassName = 'sample.Main'
+
+javafx {
+    version = "13.0.2"
+    modules = [ 'javafx.controls', 'javafx.fxml' ]
+}
+
+compileJava.options.encoding = "UTF-8"
+compileTestJava.options.encoding = "UTF-8"
+
+repositories {
+    mavenCentral()
+    jcenter()
+    maven { url "https://jitpack.io" }
+}
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(11))
+    }
+    sourceSets {
+        main {
+            java {
+                srcDirs 'src/sample'
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.openjfx:javafx-controls:13'
+    implementation 'org.openjfx:javafx-fxml:13'
+    implementation 'com.fazecast:jSerialComm:2.9.1'
+    implementation 'org.apache.commons:commons-lang3:3.12.0'
+    implementation 'com.intellij:annotations:+@jar'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    implementation 'com.github.WilliamAHartman:Jamepad:1.4.0'
+    implementation 'com.discord4j:discord4j-core:3.0.15'
+    implementation 'uk.co.electronstudio.sdl2gdx:sdl2gdx:1.0.4'
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+}
