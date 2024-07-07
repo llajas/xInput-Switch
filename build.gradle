@@ -57,6 +57,8 @@ dependencies {
     implementation 'com.github.WilliamAHartman:Jamepad:1.4.0'
     implementation 'com.discord4j:discord4j-core:3.0.15'
     implementation 'uk.co.electronstudio.sdl2gdx:sdl2gdx:1.0.4'
+    implementation 'com.sparkjava:spark-core:2.9.3'
+    implementation 'com.google.code.gson:gson:2.8.8'
 }
 
 compileKotlin {
