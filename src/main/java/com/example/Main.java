@@ -1,15 +1,12 @@
 package com.example;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextField;
-import javafx.scene.control.TextFormatter;
+import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.util.StringConverter;
@@ -41,7 +38,8 @@ public class Main extends Application {
 
     private final ControllerManager controllerManager = new ControllerManager();
     private SerialAdapter serialAdapter;
-    private ClientController clientController;
+
+    private static String[] args;
 
     @Override
     public void start(Stage primaryStage) {
@@ -139,15 +137,82 @@ public class Main extends Application {
         VBox vbox = new VBox(serialPortComboBox, controllerComboBox, baudrateField, connectButton, statusLabel);
         Scene scene = new Scene(vbox, 300, 200);
         primaryStage.setScene(scene);
-        primaryStage.show();
 
         primaryStage.setOnCloseRequest(event -> {
-            try {
-                stop();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            stopApplication();
+            Platform.exit();
         });
+
+        primaryStage.show();
+
+        if (args.length > 0) {
+            handleArguments(args);
+        }
+    }
+
+    private void handleArguments(String[] args) {
+        final String[] serialPortName = {null};
+        final int[] baudRate = {DEFAULT_BAUDRATE};
+        final ControllerIndex[] selectedController = {null};
+        boolean useFirstAvailable = false;
+
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--port":
+                    if (i + 1 < args.length) {
+                        serialPortName[0] = args[++i];
+                    }
+                    break;
+                case "--baudrate":
+                    if (i + 1 < args.length) {
+                        baudRate[0] = Integer.parseInt(args[++i]);
+                    }
+                    break;
+                case "--controller":
+                    if (i + 1 < args.length) {
+                        String controllerName = args[++i];
+                        selectedController[0] = controllerComboBox.getItems().stream()
+                                .filter(controllerIndex -> {
+                                    try {
+                                        return controllerIndex.getName().equals(controllerName);
+                                    } catch (ControllerUnpluggedException e) {
+                                        e.printStackTrace();
+                                        return false;
+                                    }
+                                })
+                                .findFirst()
+                                .orElse(null);
+                    }
+                    break;
+                case "--auto":
+                    useFirstAvailable = true;
+                    break;
+            }
+        }
+
+        if (useFirstAvailable) {
+            SerialPort firstAvailablePort = serialPortComboBox.getItems().isEmpty() ? null : serialPortComboBox.getItems().get(0);
+            ControllerIndex firstAvailableController = controllerComboBox.getItems().isEmpty() ? null : controllerComboBox.getItems().get(0);
+
+            if (firstAvailablePort != null && firstAvailableController != null) {
+                serialPortComboBox.setValue(firstAvailablePort);
+                controllerComboBox.setValue(firstAvailableController);
+                baudrateField.setText(String.valueOf(baudRate[0]));
+                connectToSerialPort();
+            }
+        } else if (serialPortName[0] != null && selectedController[0] != null) {
+            SerialPort selectedPort = serialPortComboBox.getItems().stream()
+                    .filter(port -> port.getSystemPortName().equals(serialPortName[0]))
+                    .findFirst()
+                    .orElse(null);
+
+            if (selectedPort != null) {
+                baudrateField.setText(String.valueOf(baudRate[0]));
+                serialPortComboBox.setValue(selectedPort);
+                controllerComboBox.setValue(selectedController[0]);
+                connectToSerialPort();
+            }
+        }
     }
 
     private void connectToSerialPort() {
@@ -164,7 +229,7 @@ public class Main extends Application {
             }
             serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
-            clientController = new ClientController(serialAdapter, selectedController);
+            ClientController clientController = new ClientController(serialAdapter, selectedController);
             clientController.start();
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
@@ -173,17 +238,19 @@ public class Main extends Application {
 
     @Override
     public void stop() throws Exception {
-        if (clientController != null) {
-            clientController.stop();
-        }
+        stopApplication();
+        super.stop();
+    }
+
+    private void stopApplication() {
         if (serialAdapter != null) {
             serialAdapter.close();
         }
         controllerManager.quitSDLGamepad();
-        super.stop();
     }
 
     public static void main(String[] args) {
+        Main.args = args;
         launch(args);
     }
 }
