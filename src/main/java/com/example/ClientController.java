@@ -3,6 +3,7 @@ package com.example;
 import com.studiohartman.jamepad.ControllerAxis;
 import com.studiohartman.jamepad.ControllerButton;
 import com.studiohartman.jamepad.ControllerIndex;
+import com.studiohartman.jamepad.ControllerManager;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
 
 import java.io.IOException;
@@ -10,12 +11,14 @@ import java.util.logging.Logger;
 
 public class ClientController {
     private final SerialAdapter serialAdapter;
-    private final ControllerIndex controllerIndex;
+    private final ControllerManager controllerManager;
+    private ControllerIndex controllerIndex;
     private static final Logger logger = Logger.getLogger(ClientController.class.getName());
     private volatile boolean running = true;
 
-    public ClientController(SerialAdapter serialAdapter, ControllerIndex controllerIndex) {
+    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex) {
         this.serialAdapter = serialAdapter;
+        this.controllerManager = controllerManager;
         this.controllerIndex = controllerIndex;
     }
 
@@ -28,7 +31,8 @@ public class ClientController {
                                 try {
                                     return isButtonPressed(controllerIndex, code);
                                 } catch (ControllerUnpluggedException e) {
-                                    e.printStackTrace();
+                                    logger.warning("Controller disconnected. Attempting to reconnect...");
+                                    reconnectController();
                                     return false;
                                 }
                             }),
@@ -39,6 +43,7 @@ public class ClientController {
                     serialAdapter.write(packet.getBuffer());
                     Thread.sleep(10);
                 } catch (ControllerUnpluggedException | IOException | InterruptedException e) {
+                    logger.severe("Error in main loop: " + e.getMessage());
                     e.printStackTrace();
                     break;
                 }
@@ -52,16 +57,41 @@ public class ClientController {
                 try {
                     int bytesRead = serialAdapter.read(buffer);
                     if (bytesRead > 0) {
-                        logger.info("Read from serial: " + SerialAdapter.byteArrayToHex(buffer, bytesRead));
+                        logger.fine("Read from serial: " + SerialAdapter.byteArrayToHex(buffer, bytesRead));
                     }
                     Thread.sleep(100);
                 } catch (IOException | InterruptedException e) {
+                    logger.severe("Error in serial read loop: " + e.getMessage());
                     e.printStackTrace();
                     break;
                 }
             }
             serialAdapter.close();  // Ensure the serial port is closed when the thread stops
         }).start();
+    }
+
+    private void reconnectController() {
+        while (running) {
+            controllerManager.update();
+            for (int i = 0; i < controllerManager.getNumControllers(); i++) {
+                ControllerIndex newController = controllerManager.getControllerIndex(i);
+                try {
+                    if (newController.isConnected()) {
+                        controllerIndex = newController;
+                        logger.info("Reconnected to controller: " + newController.getName());
+                        return;
+                    }
+                } catch (ControllerUnpluggedException e) {
+                    logger.warning("Controller at index " + i + " is not connected: " + e.getMessage());
+                }
+            }
+            try {
+                Thread.sleep(1000); // wait for a second before trying again
+            } catch (InterruptedException e) {
+                logger.severe("Reconnection sleep interrupted: " + e.getMessage());
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public void stop() {

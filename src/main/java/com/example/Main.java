@@ -15,10 +15,11 @@ import com.studiohartman.jamepad.ControllerIndex;
 import com.studiohartman.jamepad.ControllerManager;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
 
+import java.io.IOException;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
-import java.io.IOException;
+import java.util.logging.LogManager;
 
 public class Main extends Application {
 
@@ -38,11 +39,19 @@ public class Main extends Application {
 
     private final ControllerManager controllerManager = new ControllerManager();
     private SerialAdapter serialAdapter;
+    private ClientController clientController;
 
     private static String[] args;
 
     @Override
     public void start(Stage primaryStage) {
+        // Load logging configuration
+        try {
+            LogManager.getLogManager().readConfiguration(Main.class.getResourceAsStream("/logging.properties"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         primaryStage.setTitle("XInput to Serial Converter");
 
         serialPortComboBox = new ComboBox<>();
@@ -154,7 +163,7 @@ public class Main extends Application {
         final String[] serialPortName = {null};
         final int[] baudRate = {DEFAULT_BAUDRATE};
         final ControllerIndex[] selectedController = {null};
-        boolean useFirstAvailable = false;
+        final boolean[] useFirstAvailable = {false};
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -185,12 +194,12 @@ public class Main extends Application {
                     }
                     break;
                 case "--auto":
-                    useFirstAvailable = true;
+                    useFirstAvailable[0] = true;
                     break;
             }
         }
 
-        if (useFirstAvailable) {
+        if (useFirstAvailable[0]) {
             SerialPort firstAvailablePort = serialPortComboBox.getItems().isEmpty() ? null : serialPortComboBox.getItems().get(0);
             ControllerIndex firstAvailableController = controllerComboBox.getItems().isEmpty() ? null : controllerComboBox.getItems().get(0);
 
@@ -229,7 +238,7 @@ public class Main extends Application {
             }
             serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
-            ClientController clientController = new ClientController(serialAdapter, selectedController);
+            clientController = new ClientController(serialAdapter, controllerManager, selectedController);
             clientController.start();
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
@@ -243,6 +252,9 @@ public class Main extends Application {
     }
 
     private void stopApplication() {
+        if (clientController != null) {
+            clientController.stop();
+        }
         if (serialAdapter != null) {
             serialAdapter.close();
         }

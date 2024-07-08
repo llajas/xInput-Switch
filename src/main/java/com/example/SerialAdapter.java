@@ -4,6 +4,7 @@ import com.fazecast.jSerialComm.SerialPort;
 import com.example.util.Crc;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.commons.lang3.SystemUtils;
 
@@ -54,14 +55,14 @@ public class SerialAdapter {
             byte[] dataWithCrc = Arrays.copyOf(data, data.length + 1);
             dataWithCrc[data.length] = Crc.fromBytes(data);
             serialPort.writeBytes(dataWithCrc, dataWithCrc.length);
-            logger.info("Writing to serial: " + byteArrayToHex(dataWithCrc));
+            logger.fine("Writing to serial: " + byteArrayToHex(dataWithCrc)); // Change log level to FINE
         }
     }
 
     public synchronized int read(byte[] buffer) throws IOException {
         if (serialPort != null && serialPort.isOpen()) {
             int bytesRead = serialPort.readBytes(buffer, buffer.length);
-            logger.info("Read from serial: " + byteArrayToHex(buffer, bytesRead));
+            logger.fine("Read from serial: " + byteArrayToHex(buffer, bytesRead)); // Change log level to FINE
             return bytesRead;
         }
         return 0;
@@ -84,7 +85,7 @@ public class SerialAdapter {
         final byte b = COMMAND_SYNC_START;
         final byte[] bufferFlushBytes = {b, b, b, b, b, b, b, b, b};
         serialPort.writeBytes(bufferFlushBytes, bufferFlushBytes.length);
-        logger.info("Bytes written for sync");
+        logger.fine("Bytes written for sync"); // Change log level to FINE
 
         long timestamp = System.currentTimeMillis();
         int available = 0;
@@ -98,21 +99,21 @@ public class SerialAdapter {
         if (available >= 1 && available <= 9) {
             final byte[] rx = new byte[available];
             serialPort.readBytes(rx, available);
-            logger.info("Received " + available + " bytes: " + byteArrayToHex(rx, available));
+            logger.fine("Received " + available + " bytes: " + byteArrayToHex(rx, available)); // Change log level to FINE
             if (rx[available - 1] == RESP_SYNC_START) {
-                logger.info("RESP_SYNC_START received as last byte");
+                logger.fine("RESP_SYNC_START received as last byte"); // Change log level to FINE
                 sendByte(COMMAND_SYNC_1);
-                logger.info("Sending COMMAND_SYNC_1");
+                logger.fine("Sending COMMAND_SYNC_1"); // Change log level to FINE
                 byte response = readByte();
-                logger.info("Response: " + response);
+                logger.fine("Response: " + response); // Change log level to FINE
                 if (response == RESP_SYNC_1) {
-                    logger.info("RESP_SYNC_1 received");
+                    logger.fine("RESP_SYNC_1 received"); // Change log level to FINE
                     sendByte(COMMAND_SYNC_2);
-                    logger.info("Sending COMMAND_SYNC_2");
+                    logger.fine("Sending COMMAND_SYNC_2"); // Change log level to FINE
                     response = readByte();
-                    logger.info("Response: " + response);
+                    logger.fine("Response: " + response); // Change log level to FINE
                     if (response == RESP_SYNC_OK) {
-                        logger.info("RESP_SYNC_OK received");
+                        logger.fine("RESP_SYNC_OK received"); // Change log level to FINE
                         status = Status.SYNCED;
                         logger.info("Synchronization took " + (System.currentTimeMillis() - t1) + " ms");
                         return;
