@@ -99,6 +99,13 @@
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
                     <mainClass>com.example.Main</mainClass>
                 </configuration>
@@ -114,11 +121,24 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>com.example.Main</mainClass>
                                 </transformer>
                             </transformers>
+                            <artifactSet>
+                                <includes>
+                                    <include>org.openjfx:javafx-controls</include>
+                                    <include>org.openjfx:javafx-base</include>
+                                    <include>org.openjfx:javafx-graphics</include>
+                                    <include>com.fazecast:jSerialComm</include>
+                                    <include>uk.co.electronstudio.sdl2gdx:sdl2gdx</include>
+                                    <include>com.github.WilliamAHartman:Jamepad</include>
+                                    <include>org.jetbrains.kotlin:kotlin-stdlib</include>
+                                    <include>org.apache.commons:commons-lang3</include>
+                                </includes>
+                            </artifactSet>
                         </configuration>
                     </execution>
                 </executions>
