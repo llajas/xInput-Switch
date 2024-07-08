@@ -5,6 +5,8 @@ import com.studiohartman.jamepad.ControllerButton;
 import com.studiohartman.jamepad.ControllerIndex;
 import com.studiohartman.jamepad.ControllerManager;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
+import javafx.application.Platform;
+import javafx.scene.control.Label;
 
 import java.io.IOException;
 import java.util.logging.Logger;
@@ -15,11 +17,19 @@ public class ClientController {
     private ControllerIndex controllerIndex;
     private static final Logger logger = Logger.getLogger(ClientController.class.getName());
     private volatile boolean running = true;
+    private final Label receivedBytesLabel;
 
-    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex) {
+    // Constructor for GUI mode
+    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex, Label receivedBytesLabel) {
         this.serialAdapter = serialAdapter;
         this.controllerManager = controllerManager;
         this.controllerIndex = controllerIndex;
+        this.receivedBytesLabel = receivedBytesLabel;
+    }
+
+    // Constructor for CLI mode
+    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex) {
+        this(serialAdapter, controllerManager, controllerIndex, null);
     }
 
     public void start() {
@@ -40,7 +50,11 @@ public class ClientController {
                             new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.LEFTX), controllerIndex.getAxisState(ControllerAxis.LEFTY)),
                             new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.RIGHTX), controllerIndex.getAxisState(ControllerAxis.RIGHTY))
                     );
-                    serialAdapter.write(packet.getBuffer());
+                    byte[] buffer = packet.getBuffer();
+                    serialAdapter.write(buffer);
+                    if (receivedBytesLabel != null) {
+                        Platform.runLater(() -> receivedBytesLabel.setText(SerialAdapter.byteArrayToHex(buffer)));
+                    }
                     Thread.sleep(10);
                 } catch (ControllerUnpluggedException | IOException | InterruptedException e) {
                     logger.severe("Error in main loop: " + e.getMessage());

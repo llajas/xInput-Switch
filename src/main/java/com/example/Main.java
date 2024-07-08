@@ -15,11 +15,9 @@ import com.studiohartman.jamepad.ControllerIndex;
 import com.studiohartman.jamepad.ControllerManager;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
 
-import java.io.IOException;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
-import java.util.logging.LogManager;
 
 public class Main extends Application {
 
@@ -45,13 +43,6 @@ public class Main extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        // Load logging configuration
-        try {
-            LogManager.getLogManager().readConfiguration(Main.class.getResourceAsStream("/logging.properties"));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
         primaryStage.setTitle("XInput to Serial Converter");
 
         serialPortComboBox = new ComboBox<>();
@@ -238,7 +229,7 @@ public class Main extends Application {
             }
             serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
-            clientController = new ClientController(serialAdapter, controllerManager, selectedController);
+            clientController = new ClientController(serialAdapter, controllerManager, selectedController, statusLabel);
             clientController.start();
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
@@ -262,7 +253,28 @@ public class Main extends Application {
     }
 
     public static void main(String[] args) {
-        Main.args = args;
-        launch(args);
+        if (args.length > 0 && args[0].equals("--auto")) {
+            // Run in CLI mode
+            SerialPort[] ports = SerialPort.getCommPorts();
+            ControllerManager controllerManager = new ControllerManager();
+            controllerManager.initSDLGamepad();
+            if (ports.length > 0 && controllerManager.getNumControllers() > 0) {
+                SerialPort port = ports[0];
+                ControllerIndex controller = controllerManager.getControllerIndex(0);
+                try {
+                    ClientController clientController = new ClientController(new SerialAdapter(port, DEFAULT_BAUDRATE), controllerManager, controller, null);
+                    clientController.start();
+                    Runtime.getRuntime().addShutdownHook(new Thread(clientController::stop));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            } else {
+                System.err.println("No serial ports or controllers found.");
+            }
+        } else {
+            // Run the JavaFX application
+            Main.args = args;
+            launch(args);
+        }
     }
 }
