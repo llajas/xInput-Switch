@@ -28,22 +28,26 @@
             <version>2.9.1</version>
         </dependency>
         <dependency>
+            <groupId>uk.co.electronstudio.sdl2gdx</groupId>
+            <artifactId>sdl2gdx</artifactId>
+            <version>1.0.4</version>
+        </dependency>
+        <dependency>
             <groupId>com.github.WilliamAHartman</groupId>
             <artifactId>Jamepad</artifactId>
             <version>1.4.0</version>
         </dependency>
         <dependency>
-            <groupId>uk.co.electronstudio.sdl2gdx</groupId>
-            <artifactId>sdl2gdx</artifactId>
-            <version>1.0.4</version>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>1.6.10</version>
         </dependency>
     </dependencies>
 
     <repositories>
         <repository>
             <id>central</id>
-            <name>bintray</name>
-            <url>https://jcenter.bintray.com</url>
+            <url>https://repo.maven.apache.org/maven2</url>
         </repository>
         <repository>
             <id>jitpack.io</id>
@@ -61,6 +65,19 @@
                     <source>17</source>
                     <target>17</target>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <version>1.5.21</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>test-compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.openjfx</groupId>
