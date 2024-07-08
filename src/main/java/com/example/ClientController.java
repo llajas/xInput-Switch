@@ -6,10 +6,12 @@ import com.studiohartman.jamepad.ControllerIndex;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
 
 import java.io.IOException;
+import java.util.logging.Logger;
 
 public class ClientController {
     private final SerialAdapter serialAdapter;
     private final ControllerIndex controllerIndex;
+    private static final Logger logger = Logger.getLogger(ClientController.class.getName());
 
     public ClientController(SerialAdapter serialAdapter, ControllerIndex controllerIndex) {
         this.serialAdapter = serialAdapter;
@@ -36,6 +38,22 @@ public class ClientController {
                     serialAdapter.write(packet.getBuffer());
                     Thread.sleep(10);
                 } catch (ControllerUnpluggedException | IOException | InterruptedException e) {
+                    e.printStackTrace();
+                    break;
+                }
+            }
+        }).start();
+
+        new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            while (true) {
+                try {
+                    int bytesRead = serialAdapter.read(buffer);
+                    if (bytesRead > 0) {
+                        logger.info("Read from serial: " + SerialAdapter.byteArrayToHex(buffer, bytesRead));
+                    }
+                    Thread.sleep(100);
+                } catch (IOException | InterruptedException e) {
                     e.printStackTrace();
                     break;
                 }

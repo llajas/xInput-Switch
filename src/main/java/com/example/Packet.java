@@ -40,6 +40,23 @@ public class Packet {
         return buffer;
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Packet{");
+        sb.append("buttons=[");
+        sb.append(String.format("%8s", Integer.toBinaryString(buffer[0] & 0xFF)).replace(' ', '0')).append(" ");
+        sb.append(String.format("%8s", Integer.toBinaryString(buffer[1] & 0xFF)).replace(' ', '0')).append("], ");
+        sb.append("dpad=").append(String.format("%8s", Integer.toBinaryString(buffer[2] & 0xFF)).replace(' ', '0')).append(", ");
+        sb.append("leftJoystick=[").append(String.format("%8s", Integer.toBinaryString(buffer[3] & 0xFF)).replace(' ', '0')).append(", ");
+        sb.append(String.format("%8s", Integer.toBinaryString(buffer[4] & 0xFF)).replace(' ', '0')).append("], ");
+        sb.append("rightJoystick=[").append(String.format("%8s", Integer.toBinaryString(buffer[5] & 0xFF)).replace(' ', '0')).append(", ");
+        sb.append(String.format("%8s", Integer.toBinaryString(buffer[6] & 0xFF)).replace(' ', '0')).append("], ");
+        sb.append("vendorspec=").append(String.format("%8s", Integer.toBinaryString(buffer[7] & 0xFF)).replace(' ', '0'));
+        sb.append('}');
+        return sb.toString();
+    }
+
     public static class Buttons {
 
         public enum Code {

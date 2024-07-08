@@ -21,6 +21,7 @@ import com.studiohartman.jamepad.ControllerUnpluggedException;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
+import java.io.IOException;
 
 public class Main extends Application {
 
@@ -39,6 +40,7 @@ public class Main extends Application {
     private Label statusLabel;
 
     private final ControllerManager controllerManager = new ControllerManager();
+    private SerialAdapter serialAdapter;
 
     @Override
     public void start(Stage primaryStage) {
@@ -145,15 +147,28 @@ public class Main extends Application {
         ControllerIndex selectedController = controllerComboBox.getValue();
 
         try {
-            selectedPort.openPort();
             selectedPort.setBaudRate(baudRate);
-            selectedPort.setNumDataBits(8); // Use appropriate constants for jSerialComm 2.9.1
-            selectedPort.setNumStopBits(SerialPort.ONE_STOP_BIT); // Use appropriate constants for jSerialComm 2.9.1
-            selectedPort.setParity(SerialPort.NO_PARITY);
+            serialAdapter = new SerialAdapter(selectedPort, baudRate);
+            if (serialAdapter.isBaudrateInvalid()) {
+                statusLabel.setText("Invalid baud rate for " + selectedPort.getSystemPortName());
+                return;
+            }
+            serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
+            ClientController clientController = new ClientController(serialAdapter, selectedController);
+            clientController.start();
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
         }
+    }
+
+    @Override
+    public void stop() throws Exception {
+        if (serialAdapter != null) {
+            serialAdapter.close();
+        }
+        controllerManager.quitSDLGamepad();
+        super.stop();
     }
 
     public static void main(String[] args) {
