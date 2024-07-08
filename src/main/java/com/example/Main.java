@@ -41,6 +41,7 @@ public class Main extends Application {
 
     private final ControllerManager controllerManager = new ControllerManager();
     private SerialAdapter serialAdapter;
+    private ClientController clientController;
 
     @Override
     public void start(Stage primaryStage) {
@@ -139,6 +140,14 @@ public class Main extends Application {
         Scene scene = new Scene(vbox, 300, 200);
         primaryStage.setScene(scene);
         primaryStage.show();
+
+        primaryStage.setOnCloseRequest(event -> {
+            try {
+                stop();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void connectToSerialPort() {
@@ -155,7 +164,7 @@ public class Main extends Application {
             }
             serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
-            ClientController clientController = new ClientController(serialAdapter, selectedController);
+            clientController = new ClientController(serialAdapter, selectedController);
             clientController.start();
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
@@ -164,6 +173,9 @@ public class Main extends Application {
 
     @Override
     public void stop() throws Exception {
+        if (clientController != null) {
+            clientController.stop();
+        }
         if (serialAdapter != null) {
             serialAdapter.close();
         }

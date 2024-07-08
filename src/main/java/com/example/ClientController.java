@@ -12,6 +12,7 @@ public class ClientController {
     private final SerialAdapter serialAdapter;
     private final ControllerIndex controllerIndex;
     private static final Logger logger = Logger.getLogger(ClientController.class.getName());
+    private volatile boolean running = true;
 
     public ClientController(SerialAdapter serialAdapter, ControllerIndex controllerIndex) {
         this.serialAdapter = serialAdapter;
@@ -20,7 +21,7 @@ public class ClientController {
 
     public void start() {
         new Thread(() -> {
-            while (true) {
+            while (running) {
                 try {
                     Packet packet = new Packet(
                             new Packet.Buttons(code -> {
@@ -42,11 +43,12 @@ public class ClientController {
                     break;
                 }
             }
+            serialAdapter.close();  // Ensure the serial port is closed when the thread stops
         }).start();
 
         new Thread(() -> {
             byte[] buffer = new byte[1024];
-            while (true) {
+            while (running) {
                 try {
                     int bytesRead = serialAdapter.read(buffer);
                     if (bytesRead > 0) {
@@ -58,7 +60,12 @@ public class ClientController {
                     break;
                 }
             }
+            serialAdapter.close();  // Ensure the serial port is closed when the thread stops
         }).start();
+    }
+
+    public void stop() {
+        running = false;
     }
 
     protected static boolean isButtonPressed(final ControllerIndex controller, final Packet.Buttons.Code code)
