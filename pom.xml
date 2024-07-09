@@ -34,6 +34,21 @@
             <version>${javafx.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx</artifactId>
+            <version>1.9.9</version>
+        </dependency>
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-jnigen</artifactId>
+            <version>1.9.9</version>
+        </dependency>
+        <dependency>
             <groupId>com.fazecast</groupId>
             <artifactId>jSerialComm</artifactId>
             <version>2.9.1</version>
@@ -124,7 +139,7 @@
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.example.Main</mainClass>
+                                    <mainClass>com.example.GUIStarter</mainClass>
                                 </transformer>
                             </transformers>
                             <artifactSet>
@@ -132,11 +147,14 @@
                                     <include>org.openjfx:javafx-controls</include>
                                     <include>org.openjfx:javafx-base</include>
                                     <include>org.openjfx:javafx-graphics</include>
+                                    <include>org.openjfx:javafx-fxml</include>
                                     <include>com.fazecast:jSerialComm</include>
                                     <include>uk.co.electronstudio.sdl2gdx:sdl2gdx</include>
                                     <include>com.github.WilliamAHartman:Jamepad</include>
                                     <include>org.jetbrains.kotlin:kotlin-stdlib</include>
                                     <include>org.apache.commons:commons-lang3</include>
+                                    <include>com.badlogicgames.gdx:gdx</include>
+                                    <include>com.badlogicgames.gdx:gdx-jnigen</include>
                                 </includes>
                             </artifactSet>
                         </configuration>
