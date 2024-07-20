@@ -18,6 +18,7 @@ import com.studiohartman.jamepad.ControllerUnpluggedException;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
+import java.util.logging.Logger;
 
 public class Main extends Application {
 
@@ -26,7 +27,8 @@ public class Main extends Application {
     private static final int MAX_BAUDRATE = 1000000;
     private static final int MIN_BAUDRATE = 9600;
     private static final String KEY_BAUDRATE = "key_baudrate";
-
+    private static final Logger logger = Logger.getLogger(Main.class.getName());
+    
     private final Preferences prefs = Preferences.userNodeForPackage(Main.class);
 
     private TextField baudrateField;
@@ -40,9 +42,21 @@ public class Main extends Application {
     private ClientController clientController;
 
     private static String[] args;
+    private static boolean headless = false;
 
     @Override
     public void start(Stage primaryStage) {
+        if (headless) {
+            primaryStage.setOpacity(0);
+            primaryStage.setIconified(true);
+            primaryStage.setAlwaysOnTop(true);
+            initGUI(primaryStage);
+        } else {
+            initGUI(primaryStage);
+        }
+    }
+
+    private void initGUI(Stage primaryStage) {
         primaryStage.setTitle("XInput to Serial Converter");
 
         serialPortComboBox = new ComboBox<>();
@@ -71,6 +85,58 @@ public class Main extends Application {
         });
 
         // Populate controllers
+        populateControllers();
+
+        // Set default baud rate
+        baudrateField.setText(prefs.get(KEY_BAUDRATE, String.valueOf(DEFAULT_BAUDRATE)));
+
+        // Force the field to be numeric only
+        final UnaryOperator<TextFormatter.Change> integerFilter = change -> {
+            final String input = change.getText();
+            if (NUMERIC_PATTERN.matcher(input).matches()) {
+                return change;
+            }
+            return null;
+        };
+        baudrateField.setTextFormatter(new TextFormatter<>(integerFilter));
+        baudrateField.textProperty().addListener((observable, oldValue, newValue) -> prefs.put(KEY_BAUDRATE, newValue));
+
+        connectButton.disableProperty().bind(Bindings.createBooleanBinding(() -> {
+            if (baudrateField.getText().length() > String.valueOf(MAX_BAUDRATE).length()) {
+                return true;
+            }
+            final int baud = baudrateField.getText().length() == 0 ?
+                    0 : Integer.parseInt(baudrateField.getText());
+            return baud < MIN_BAUDRATE || baud > MAX_BAUDRATE
+                    || serialPortComboBox.getValue() == null
+                    || controllerComboBox.getValue() == null;
+        }, baudrateField.textProperty(), serialPortComboBox.valueProperty(), controllerComboBox.valueProperty()));
+
+        connectButton.setOnAction(e -> {
+            if ("Connect".equals(connectButton.getText())) {
+                connectToSerialPort();
+            } else {
+                primaryStage.close(); // Close the window on disconnect
+            }
+        });
+
+        VBox vbox = new VBox(serialPortComboBox, controllerComboBox, baudrateField, connectButton, statusLabel);
+        Scene scene = new Scene(vbox, 300, 200);
+        primaryStage.setScene(scene);
+
+        primaryStage.setOnCloseRequest(event -> {
+            stopApplication();
+            Platform.exit();
+        });
+
+        primaryStage.show();
+
+        if (args.length > 0) {
+            handleArguments(args);
+        }
+    }
+
+    private void populateControllers() {
         controllerManager.initSDLGamepad();
         ObservableList<ControllerIndex> controllerList = FXCollections.observableArrayList();
         for (int i = 0; i < controllerManager.getNumControllers(); i++) {
@@ -106,48 +172,6 @@ public class Main extends Application {
                         .orElse(null);
             }
         });
-
-        // Set default baud rate
-        baudrateField.setText(prefs.get(KEY_BAUDRATE, String.valueOf(DEFAULT_BAUDRATE)));
-
-        // Force the field to be numeric only
-        final UnaryOperator<TextFormatter.Change> integerFilter = change -> {
-            final String input = change.getText();
-            if (NUMERIC_PATTERN.matcher(input).matches()) {
-                return change;
-            }
-            return null;
-        };
-        baudrateField.setTextFormatter(new TextFormatter<>(integerFilter));
-        baudrateField.textProperty().addListener((observable, oldValue, newValue) -> prefs.put(KEY_BAUDRATE, newValue));
-
-        connectButton.disableProperty().bind(Bindings.createBooleanBinding(() -> {
-            if (baudrateField.getText().length() > String.valueOf(MAX_BAUDRATE).length()) {
-                return true;
-            }
-            final int baud = baudrateField.getText().length() == 0 ?
-                    0 : Integer.parseInt(baudrateField.getText());
-            return baud < MIN_BAUDRATE || baud > MAX_BAUDRATE
-                    || serialPortComboBox.getValue() == null
-                    || controllerComboBox.getValue() == null;
-        }, baudrateField.textProperty(), serialPortComboBox.valueProperty(), controllerComboBox.valueProperty()));
-
-        connectButton.setOnAction(e -> connectToSerialPort());
-
-        VBox vbox = new VBox(serialPortComboBox, controllerComboBox, baudrateField, connectButton, statusLabel);
-        Scene scene = new Scene(vbox, 300, 200);
-        primaryStage.setScene(scene);
-
-        primaryStage.setOnCloseRequest(event -> {
-            stopApplication();
-            Platform.exit();
-        });
-
-        primaryStage.show();
-
-        if (args.length > 0) {
-            handleArguments(args);
-        }
     }
 
     private void handleArguments(String[] args) {
@@ -187,6 +211,9 @@ public class Main extends Application {
                 case "--auto":
                     useFirstAvailable[0] = true;
                     break;
+                case "--headless":
+                    headless = true;
+                    break;
             }
         }
 
@@ -199,6 +226,8 @@ public class Main extends Application {
                 controllerComboBox.setValue(firstAvailableController);
                 baudrateField.setText(String.valueOf(baudRate[0]));
                 connectToSerialPort();
+            } else {
+                retryControllerDetection();
             }
         } else if (serialPortName[0] != null && selectedController[0] != null) {
             SerialPort selectedPort = serialPortComboBox.getItems().stream()
@@ -213,6 +242,23 @@ public class Main extends Application {
                 connectToSerialPort();
             }
         }
+    }
+
+    private void retryControllerDetection() {
+        Platform.runLater(() -> {
+            controllerManager.initSDLGamepad();
+            ObservableList<ControllerIndex> controllerList = FXCollections.observableArrayList();
+            for (int i = 0; i < controllerManager.getNumControllers(); i++) {
+                ControllerIndex controllerIndex = controllerManager.getControllerIndex(i);
+                if (controllerIndex != null && controllerIndex.isConnected()) {
+                    controllerList.add(controllerIndex);
+                }
+            }
+            controllerComboBox.setItems(controllerList);
+            if (!controllerList.isEmpty()) {
+                controllerComboBox.setValue(controllerList.get(0));
+            }
+        });
     }
 
     private void connectToSerialPort() {
@@ -231,6 +277,7 @@ public class Main extends Application {
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
             clientController = new ClientController(serialAdapter, controllerManager, selectedController, statusLabel);
             clientController.start();
+            connectButton.setText("Disconnect");
         } catch (Exception e) {
             statusLabel.setText("Failed to connect: " + e.getMessage());
         }
@@ -253,28 +300,12 @@ public class Main extends Application {
     }
 
     public static void main(String[] args) {
-        if (args.length > 0 && args[0].equals("--auto")) {
-            // Run in CLI mode
-            SerialPort[] ports = SerialPort.getCommPorts();
-            ControllerManager controllerManager = new ControllerManager();
-            controllerManager.initSDLGamepad();
-            if (ports.length > 0 && controllerManager.getNumControllers() > 0) {
-                SerialPort port = ports[0];
-                ControllerIndex controller = controllerManager.getControllerIndex(0);
-                try {
-                    ClientController clientController = new ClientController(new SerialAdapter(port, DEFAULT_BAUDRATE), controllerManager, controller, null);
-                    clientController.start();
-                    Runtime.getRuntime().addShutdownHook(new Thread(clientController::stop));
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            } else {
-                System.err.println("No serial ports or controllers found.");
+        Main.args = args;
+        for (String arg : args) {
+            if (arg.equals("--headless")) {
+                headless = true;
             }
-        } else {
-            // Run the JavaFX application
-            Main.args = args;
-            launch(args);
         }
+        launch(args);
     }
 }
