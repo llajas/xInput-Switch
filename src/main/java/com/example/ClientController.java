@@ -17,6 +17,7 @@ public class ClientController {
     private ControllerIndex controllerIndex;
     private static final Logger logger = Logger.getLogger(ClientController.class.getName());
     private volatile boolean running = true;
+    private volatile boolean obsActive = true; // Default to true
     private final Label receivedBytesLabel;
 
     // Constructor for GUI mode
@@ -35,31 +36,40 @@ public class ClientController {
     public void start() {
         new Thread(() -> {
             while (running) {
-                try {
-                    Packet packet = new Packet(
-                            new Packet.Buttons(code -> {
-                                try {
-                                    return isButtonPressed(controllerIndex, code);
-                                } catch (ControllerUnpluggedException e) {
-                                    logger.warning("Controller disconnected. Attempting to reconnect...");
-                                    reconnectController();
-                                    return false;
-                                }
-                            }),
-                            mapToDpad(controllerIndex),
-                            new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.LEFTX), controllerIndex.getAxisState(ControllerAxis.LEFTY)),
-                            new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.RIGHTX), controllerIndex.getAxisState(ControllerAxis.RIGHTY))
-                    );
-                    byte[] buffer = packet.getBuffer();
-                    serialAdapter.write(buffer);
-                    if (receivedBytesLabel != null) {
-                        Platform.runLater(() -> receivedBytesLabel.setText(SerialAdapter.byteArrayToHex(buffer)));
+                if (obsActive) {
+                    try {
+                        Packet packet = new Packet(
+                                new Packet.Buttons(code -> {
+                                    try {
+                                        return isButtonPressed(controllerIndex, code);
+                                    } catch (ControllerUnpluggedException e) {
+                                        logger.warning("Controller disconnected. Attempting to reconnect...");
+                                        reconnectController();
+                                        return false;
+                                    }
+                                }),
+                                mapToDpad(controllerIndex),
+                                new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.LEFTX), controllerIndex.getAxisState(ControllerAxis.LEFTY)),
+                                new Packet.Joystick(controllerIndex.getAxisState(ControllerAxis.RIGHTX), controllerIndex.getAxisState(ControllerAxis.RIGHTY))
+                        );
+                        byte[] buffer = packet.getBuffer();
+                        serialAdapter.write(buffer);
+                        if (receivedBytesLabel != null) {
+                            Platform.runLater(() -> receivedBytesLabel.setText(SerialAdapter.byteArrayToHex(buffer)));
+                        }
+                        Thread.sleep(10);
+                    } catch (ControllerUnpluggedException | IOException | InterruptedException e) {
+                        logger.severe("Error in main loop: " + e.getMessage());
+                        e.printStackTrace();
+                        break;
                     }
-                    Thread.sleep(10);
-                } catch (ControllerUnpluggedException | IOException | InterruptedException e) {
-                    logger.severe("Error in main loop: " + e.getMessage());
-                    e.printStackTrace();
-                    break;
+                } else {
+                    try {
+                        Thread.sleep(100); // Poll less frequently when OBS is not active
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        break;
+                    }
                 }
             }
             serialAdapter.close();  // Ensure the serial port is closed when the thread stops
@@ -82,6 +92,10 @@ public class ClientController {
             }
             serialAdapter.close();  // Ensure the serial port is closed when the thread stops
         }).start();
+    }
+
+    public void setOBSActive(boolean obsActive) {
+        this.obsActive = obsActive;
     }
 
     private void reconnectController() {

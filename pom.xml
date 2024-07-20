@@ -73,6 +73,16 @@
             <artifactId>commons-lang3</artifactId>
             <version>3.12.0</version>
         </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.8.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.8.0</version>
+        </dependency>
     </dependencies>
 
     <repositories>
@@ -155,6 +165,8 @@
                                     <include>org.apache.commons:commons-lang3</include>
                                     <include>com.badlogicgames.gdx:gdx</include>
                                     <include>com.badlogicgames.gdx:gdx-jnigen</include>
+                                    <include>net.java.dev.jna:jna</include>
+                                    <include>net.java.dev.jna:jna-platform</include>
                                 </includes>
                             </artifactSet>
                         </configuration>

@@ -14,7 +14,9 @@ import com.fazecast.jSerialComm.SerialPort;
 import com.studiohartman.jamepad.ControllerIndex;
 import com.studiohartman.jamepad.ControllerManager;
 import com.studiohartman.jamepad.ControllerUnpluggedException;
-
+import com.sun.jna.Native;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinDef;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
@@ -28,7 +30,7 @@ public class Main extends Application {
     private static final int MIN_BAUDRATE = 9600;
     private static final String KEY_BAUDRATE = "key_baudrate";
     private static final Logger logger = Logger.getLogger(Main.class.getName());
-    
+
     private final Preferences prefs = Preferences.userNodeForPackage(Main.class);
 
     private TextField baudrateField;
@@ -54,6 +56,9 @@ public class Main extends Application {
         } else {
             initGUI(primaryStage);
         }
+
+        // Start a thread to monitor the active window
+        new Thread(this::monitorActiveWindow).start();
     }
 
     private void initGUI(Stage primaryStage) {
@@ -307,5 +312,28 @@ public class Main extends Application {
             }
         }
         launch(args);
+    }
+
+    private void monitorActiveWindow() {
+        while (true) {
+            boolean isOBSActive = isOBSActive();
+            if (clientController != null) {
+                clientController.setOBSActive(isOBSActive);
+            }
+            try {
+                Thread.sleep(1000); // Check every second
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private boolean isOBSActive() {
+        User32 user32 = User32.INSTANCE;
+        char[] buffer = new char[512];
+        WinDef.HWND hwnd = user32.GetForegroundWindow();
+        user32.GetWindowText(hwnd, buffer, 512);
+        String windowTitle = Native.toString(buffer);
+        return windowTitle.contains("Fullscreen Projector (Program)");
     }
 }
