@@ -17,6 +17,10 @@ import com.studiohartman.jamepad.ControllerUnpluggedException;
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
+import com.sun.jna.platform.win32.WinDef.HWND;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.UnaryOperator;
 import java.util.prefs.Preferences;
 import java.util.regex.Pattern;
@@ -30,12 +34,13 @@ public class Main extends Application {
     private static final int MIN_BAUDRATE = 9600;
     private static final String KEY_BAUDRATE = "key_baudrate";
     private static final Logger logger = Logger.getLogger(Main.class.getName());
-
+    
     private final Preferences prefs = Preferences.userNodeForPackage(Main.class);
 
     private TextField baudrateField;
     private ComboBox<SerialPort> serialPortComboBox;
     private ComboBox<ControllerIndex> controllerComboBox;
+    private ComboBox<String> windowComboBox;
     private Button connectButton;
     private Label statusLabel;
 
@@ -45,6 +50,7 @@ public class Main extends Application {
 
     private static String[] args;
     private static boolean headless = false;
+    private static String selectedWindowTitle = "";
 
     @Override
     public void start(Stage primaryStage) {
@@ -56,9 +62,6 @@ public class Main extends Application {
         } else {
             initGUI(primaryStage);
         }
-
-        // Start a thread to monitor the active window
-        new Thread(this::monitorActiveWindow).start();
     }
 
     private void initGUI(Stage primaryStage) {
@@ -66,6 +69,7 @@ public class Main extends Application {
 
         serialPortComboBox = new ComboBox<>();
         controllerComboBox = new ComboBox<>();
+        windowComboBox = new ComboBox<>();
         baudrateField = new TextField();
         connectButton = new Button("Connect");
         statusLabel = new Label();
@@ -92,6 +96,9 @@ public class Main extends Application {
         // Populate controllers
         populateControllers();
 
+        // Populate windows
+        populateWindows();
+
         // Set default baud rate
         baudrateField.setText(prefs.get(KEY_BAUDRATE, String.valueOf(DEFAULT_BAUDRATE)));
 
@@ -114,18 +121,20 @@ public class Main extends Application {
                     0 : Integer.parseInt(baudrateField.getText());
             return baud < MIN_BAUDRATE || baud > MAX_BAUDRATE
                     || serialPortComboBox.getValue() == null
-                    || controllerComboBox.getValue() == null;
-        }, baudrateField.textProperty(), serialPortComboBox.valueProperty(), controllerComboBox.valueProperty()));
+                    || controllerComboBox.getValue() == null
+                    || windowComboBox.getValue() == null;
+        }, baudrateField.textProperty(), serialPortComboBox.valueProperty(), controllerComboBox.valueProperty(), windowComboBox.valueProperty()));
 
         connectButton.setOnAction(e -> {
             if ("Connect".equals(connectButton.getText())) {
+                selectedWindowTitle = windowComboBox.getValue();
                 connectToSerialPort();
             } else {
                 primaryStage.close(); // Close the window on disconnect
             }
         });
 
-        VBox vbox = new VBox(serialPortComboBox, controllerComboBox, baudrateField, connectButton, statusLabel);
+        VBox vbox = new VBox(serialPortComboBox, controllerComboBox, windowComboBox, baudrateField, connectButton, statusLabel);
         Scene scene = new Scene(vbox, 300, 200);
         primaryStage.setScene(scene);
 
@@ -179,10 +188,43 @@ public class Main extends Application {
         });
     }
 
+    private void populateWindows() {
+        User32 user32 = User32.INSTANCE;
+        List<String> windowTitles = new ArrayList<>();
+
+        user32.EnumWindows((hwnd, pointer) -> {
+            char[] windowText = new char[512];
+            user32.GetWindowText(hwnd, windowText, 512);
+            String wText = Native.toString(windowText);
+            if (!wText.isEmpty()) {
+                windowTitles.add(wText);
+            }
+            return true;
+        }, null);
+
+        ObservableList<String> observableWindowList = FXCollections.observableArrayList(windowTitles);
+        windowComboBox.setItems(observableWindowList);
+        windowComboBox.setConverter(new StringConverter<String>() {
+            @Override
+            public String toString(final String windowTitle) {
+                return windowTitle != null ? windowTitle : "None";
+            }
+
+            @Override
+            public String fromString(final String string) {
+                return windowComboBox.getItems().stream()
+                        .filter(windowTitle -> windowTitle.equals(string))
+                        .findFirst()
+                        .orElse(null);
+            }
+        });
+    }
+
     private void handleArguments(String[] args) {
         final String[] serialPortName = {null};
         final int[] baudRate = {DEFAULT_BAUDRATE};
         final ControllerIndex[] selectedController = {null};
+        final String[] selectedWindowTitle = {null};
         final boolean[] useFirstAvailable = {false};
 
         for (int i = 0; i < args.length; i++) {
@@ -213,6 +255,11 @@ public class Main extends Application {
                                 .orElse(null);
                     }
                     break;
+                case "--window":
+                    if (i + 1 < args.length) {
+                        selectedWindowTitle[0] = args[++i];
+                    }
+                    break;
                 case "--auto":
                     useFirstAvailable[0] = true;
                     break;
@@ -225,25 +272,33 @@ public class Main extends Application {
         if (useFirstAvailable[0]) {
             SerialPort firstAvailablePort = serialPortComboBox.getItems().isEmpty() ? null : serialPortComboBox.getItems().get(0);
             ControllerIndex firstAvailableController = controllerComboBox.getItems().isEmpty() ? null : controllerComboBox.getItems().get(0);
+            String firstAvailableWindowTitle = windowComboBox.getItems().isEmpty() ? null : windowComboBox.getItems().get(0);
 
-            if (firstAvailablePort != null && firstAvailableController != null) {
+            if (firstAvailablePort != null && firstAvailableController != null && firstAvailableWindowTitle != null) {
                 serialPortComboBox.setValue(firstAvailablePort);
                 controllerComboBox.setValue(firstAvailableController);
+                windowComboBox.setValue(firstAvailableWindowTitle);
                 baudrateField.setText(String.valueOf(baudRate[0]));
                 connectToSerialPort();
             } else {
                 retryControllerDetection();
             }
-        } else if (serialPortName[0] != null && selectedController[0] != null) {
+        } else if (serialPortName[0] != null && selectedController[0] != null && selectedWindowTitle[0] != null) {
             SerialPort selectedPort = serialPortComboBox.getItems().stream()
                     .filter(port -> port.getSystemPortName().equals(serialPortName[0]))
                     .findFirst()
                     .orElse(null);
 
-            if (selectedPort != null) {
+            String selectedWindow = windowComboBox.getItems().stream()
+                    .filter(window -> window.equals(selectedWindowTitle[0]))
+                    .findFirst()
+                    .orElse(null);
+
+            if (selectedPort != null && selectedWindow != null) {
                 baudrateField.setText(String.valueOf(baudRate[0]));
                 serialPortComboBox.setValue(selectedPort);
                 controllerComboBox.setValue(selectedController[0]);
+                windowComboBox.setValue(selectedWindow);
                 connectToSerialPort();
             }
         }
@@ -270,6 +325,7 @@ public class Main extends Application {
         SerialPort selectedPort = serialPortComboBox.getValue();
         int baudRate = Integer.parseInt(baudrateField.getText());
         ControllerIndex selectedController = controllerComboBox.getValue();
+        selectedWindowTitle = windowComboBox.getValue();
 
         try {
             selectedPort.setBaudRate(baudRate);
@@ -280,7 +336,7 @@ public class Main extends Application {
             }
             serialAdapter.sync();
             statusLabel.setText("Connected to " + selectedPort.getSystemPortName() + " at " + baudRate + " baud with controller " + (selectedController != null ? selectedController.getName() : "None") + ".");
-            clientController = new ClientController(serialAdapter, controllerManager, selectedController, statusLabel);
+            clientController = new ClientController(serialAdapter, controllerManager, selectedController, statusLabel, selectedWindowTitle);
             clientController.start();
             connectButton.setText("Disconnect");
         } catch (Exception e) {
@@ -312,28 +368,5 @@ public class Main extends Application {
             }
         }
         launch(args);
-    }
-
-    private void monitorActiveWindow() {
-        while (true) {
-            boolean isOBSActive = isOBSActive();
-            if (clientController != null) {
-                clientController.setOBSActive(isOBSActive);
-            }
-            try {
-                Thread.sleep(1000); // Check every second
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    private boolean isOBSActive() {
-        User32 user32 = User32.INSTANCE;
-        char[] buffer = new char[512];
-        WinDef.HWND hwnd = user32.GetForegroundWindow();
-        user32.GetWindowText(hwnd, buffer, 512);
-        String windowTitle = Native.toString(buffer);
-        return windowTitle.contains("Fullscreen Projector (Program)");
     }
 }

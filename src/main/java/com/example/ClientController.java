@@ -10,6 +10,9 @@ import javafx.scene.control.Label;
 
 import java.io.IOException;
 import java.util.logging.Logger;
+import com.sun.jna.Native;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinDef;
 
 public class ClientController {
     private final SerialAdapter serialAdapter;
@@ -19,24 +22,26 @@ public class ClientController {
     private volatile boolean running = true;
     private volatile boolean obsActive = true; // Default to true
     private final Label receivedBytesLabel;
+    private final String windowTitle;
 
     // Constructor for GUI mode
-    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex, Label receivedBytesLabel) {
+    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex, Label receivedBytesLabel, String windowTitle) {
         this.serialAdapter = serialAdapter;
         this.controllerManager = controllerManager;
         this.controllerIndex = controllerIndex;
         this.receivedBytesLabel = receivedBytesLabel;
+        this.windowTitle = windowTitle;
     }
 
     // Constructor for CLI mode
-    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex) {
-        this(serialAdapter, controllerManager, controllerIndex, null);
+    public ClientController(SerialAdapter serialAdapter, ControllerManager controllerManager, ControllerIndex controllerIndex, String windowTitle) {
+        this(serialAdapter, controllerManager, controllerIndex, null, windowTitle);
     }
 
     public void start() {
         new Thread(() -> {
             while (running) {
-                if (obsActive) {
+                if (isWindowActive(windowTitle)) {
                     try {
                         Packet packet = new Packet(
                                 new Packet.Buttons(code -> {
@@ -65,7 +70,7 @@ public class ClientController {
                     }
                 } else {
                     try {
-                        Thread.sleep(100); // Poll less frequently when OBS is not active
+                        Thread.sleep(100); // Poll less frequently when the window is not active
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                         break;
@@ -96,6 +101,15 @@ public class ClientController {
 
     public void setOBSActive(boolean obsActive) {
         this.obsActive = obsActive;
+    }
+
+    private boolean isWindowActive(String windowTitle) {
+        User32 user32 = User32.INSTANCE;
+        WinDef.HWND hwnd = user32.GetForegroundWindow();
+        char[] windowText = new char[512];
+        user32.GetWindowText(hwnd, windowText, 512);
+        String currentWindowTitle = Native.toString(windowText);
+        return windowTitle.equals(currentWindowTitle);
     }
 
     private void reconnectController() {
