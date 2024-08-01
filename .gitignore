@@ -5,7 +5,7 @@
 *.log
 
 # Maven
-target/
+*/target/
 
 # Eclipse
 .project
@@ -13,13 +13,13 @@ target/
 .settings/
 
 # IDEA
-.idea/
+*/.idea/
 *.iml
 *.iws
 *.ipr
 
 # Build directory
-bin/
+*/bin/
 
 # Ignore specific files
 *.jar
@@ -30,3 +30,6 @@ bin/
 
 # MacOS
 .DS_Store
+
+# VSCode Workspace
+*.code-workspace
