@@ -1,4 +1,4 @@
-package com.javmarina.jamepad;
+package com.example;
 
 import com.studiohartman.jamepad.ControllerManager;
 
