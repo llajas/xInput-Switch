@@ -1,12 +1,13 @@
 #### Overview
 
-The **XInput to Serial Converter** Java application is designed to map controller inputs to a serial device. It supports various controller types, including Xbox and PlayStation controllers and is capable of running in headless mode. The application also allows specifying a particular window title, ensuring that controller inputs are sent only when a specific window is active.
+The **XInput to Serial Converter** application maps controller inputs to a serial device.  Originally written in Java, a light‑weight Python version is also provided for Windows users.  Both variants can run headless and optionally bind input to a specific window.
 
 #### Features
 
 - **Headless Mode:** The application can run without a graphical user interface, suitable for automated or background processes.
 - **Window Title Binding:** Controller inputs are directed to a serial device only when a specified window is active.
 - **Auto-Detection:** Automatically detects and connects to the first available serial port and controller.
+- **Defaults:** When run with `--auto`, the first detected controller and COM port are used with a baud rate of 1&nbsp;000&nbsp;000 (1&nbsp;Mbps).
 
 #### Requirements
 
@@ -14,6 +15,8 @@ The **XInput to Serial Converter** Java application is designed to map controlle
 - JavaFX library
 - Jamepad library for gamepad support
 - JNA library for interacting with native OS features
+- Python 3.10 or later (for the optional Python implementation)
+- `pyserial` and `pygame` libraries, plus `pywin32` on Windows if window binding is desired
 
 #### Building the Package
 
@@ -36,16 +39,29 @@ To run the application, use the following command:
 java -jar xinput-serial-1.0-SNAPSHOT.jar [options]
 ```
 
+Alternatively, a Windows friendly Python script is available under
+`python_version`.  Invoke it with:
+
+```bash
+python python_version/xinput2serial.py [options]
+```
+
 ##### Options
 
 - `--headless`: Run the application without a GUI.
 - `--auto`: Automatically select the first available serial port and controller.
 - `--window "Window Title"`: Specify the window title to bind controller inputs.
+- `--port COMx`: Specify a serial port (Python only).
+- `--baudrate N`: Set baud rate, defaults to 1,000,000.
 
 ##### Example
 
 ```bash
 java -jar xinput-serial-1.0-SNAPSHOT.jar --headless --auto --window "Fullscreen Projector (Preview)"
+```
+
+```bash
+python python_version/xinput2serial.py --auto --window "Fullscreen Projector (Preview)"
 ```
 
 This command starts the application in headless mode, auto-selects the first available serial port and controller, and binds inputs only when the window titled "Fullscreen Projector (Preview)" is active, in this case OBS streaming software. This can be substituted for any other application.
