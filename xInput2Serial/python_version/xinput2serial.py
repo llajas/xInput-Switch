@@ -6,12 +6,6 @@ import serial.tools.list_ports
 import time
 import ctypes
 
-# Ensure pygame can run headless
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-if sys.platform == "win32":
-    # Detect virtual controllers like Moonlight's "RAW INPUT" device
-    os.environ.setdefault("SDL_JOYSTICK_RAWINPUT", "1")
-
 try:
     import pygame
     import pygame.joystick
@@ -238,8 +232,6 @@ def get_joystick(index: int | None = None, debug: bool = False):
     if pygame is None:
         raise RuntimeError('pygame is required')
     pygame.joystick.init()
-    pygame.display.init()
-    pygame.display.set_mode((1, 1))
     count = pygame.joystick.get_count()
     if debug:
         print(f"Detected {count} joystick(s)")
