@@ -141,9 +141,35 @@ def get_joystick(index: int | None = None, debug: bool = False):
     """Return a joystick object using SDL2 via pygame."""
     if pygame is None:
         raise RuntimeError('pygame is required')
+
+    # Initialize pygame and controller subsystem
+    pygame.init()
+    try:
+        from pygame._sdl2 import controller as sdl2_controller
+    except Exception:
+        sdl2_controller = None
+
+    if sdl2_controller:
+        sdl2_controller.init()
+        count = sdl2_controller.get_count()
+        if debug:
+            print(f"Detected {count} gamecontroller(s) via SDL2")
+            for i in range(count):
+                c = sdl2_controller.Controller(i)
+                print(f"  {i}: {c.name}")
+                c.quit()
+        if count == 0:
+            return None
+        idx = index if index is not None else 0
+        ctrl = sdl2_controller.Controller(idx)
+        if debug:
+            print(f"Using SDL2 GameController: {ctrl.name}")
+        joy = ctrl.as_joystick()
+        joy.init()
+        return joy
+
+    # Fallback to legacy joystick API
     pygame.joystick.init()
-    pygame.display.init()
-    pygame.display.set_mode((1, 1))
     count = pygame.joystick.get_count()
     if debug:
         print(f"Detected {count} joystick(s)")
@@ -197,7 +223,8 @@ DPAD_MAPPING = {
 }
 
 
-def build_packet(joy) -> Packet:
+def build_packet(joy, debug: bool = False) -> Packet:
+    """Poll the joystick and return a Packet representing its state."""
     # Pump the SDL event queue so axis/button states update.
     if pygame:
         pygame.event.pump()
@@ -219,6 +246,11 @@ def build_packet(joy) -> Packet:
     ly = joy.get_axis(1)
     rx = joy.get_axis(3)
     ry = joy.get_axis(4)
+    if debug:
+        print(
+            f"RAW buttons=0x{buttons:04X} dpad=({hatx},{haty}) "
+            f"axes=({lx:.2f},{ly:.2f},{rx:.2f},{ry:.2f})"
+        )
     return Packet(buttons, dpad, lx, ly, rx, ry)
 
 
@@ -269,7 +301,7 @@ def main():
                 continue
 
             prev_active = True
-            packet = build_packet(joy)
+            packet = build_packet(joy, args.debug)
             adapter.write(packet.to_bytes())
             if args.debug:
                 print("TX:", packet.to_bytes().hex(), packet)
