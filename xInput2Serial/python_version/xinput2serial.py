@@ -142,8 +142,12 @@ def get_joystick(index: int | None = None, debug: bool = False):
     if pygame is None:
         raise RuntimeError('pygame is required')
 
-    # Initialize pygame and controller subsystem
+    # Initialize pygame and controller subsystem. A dummy window is created so
+    # that SDL2 will update controller state even when running headless with
+    # SDL_VIDEODRIVER=dummy.
     pygame.init()
+    pygame.display.init()
+    pygame.display.set_mode((1, 1))
     try:
         from pygame._sdl2 import controller as sdl2_controller
     except Exception:
@@ -159,14 +163,16 @@ def get_joystick(index: int | None = None, debug: bool = False):
                 print(f"  {i}: {c.name}")
                 c.quit()
         if count == 0:
-            return None
+            return None, None
         idx = index if index is not None else 0
         ctrl = sdl2_controller.Controller(idx)
         if debug:
             print(f"Using SDL2 GameController: {ctrl.name}")
         joy = ctrl.as_joystick()
         joy.init()
-        return joy
+        # Keep a reference to the Controller object so it does not get garbage
+        # collected. Return both objects to the caller.
+        return ctrl, joy
 
     # Fallback to legacy joystick API
     pygame.joystick.init()
@@ -179,11 +185,11 @@ def get_joystick(index: int | None = None, debug: bool = False):
             print(f"  {i}: {j.get_name()}")
             j.quit()
     if count == 0:
-        return None
+        return None, None
     idx = index if index is not None else 0
     joy = pygame.joystick.Joystick(idx)
     joy.init()
-    return joy
+    return None, joy
 
 
 def is_window_active(title: str) -> bool:
@@ -262,7 +268,7 @@ def main():
         return
 
     port = args.port or get_first_serial_port(args.debug)
-    joy = get_joystick(args.controller, args.debug)
+    ctrl, joy = get_joystick(args.controller, args.debug)
 
     if args.auto:
         if port is None:
