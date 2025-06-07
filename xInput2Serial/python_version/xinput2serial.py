@@ -150,10 +150,12 @@ def get_joystick(index: int | None = None, debug: bool = False):
 
 
 def is_window_active(title: str) -> bool:
+    """Return True if a window with the given title currently has focus."""
     if win32gui is None:
         return True
     hwnd = win32gui.GetForegroundWindow()
-    return win32gui.GetWindowText(hwnd) == title
+    active = win32gui.GetWindowText(hwnd)
+    return title.lower() in active.lower()
 
 
 # Button mapping constants
@@ -240,10 +242,20 @@ def main():
         print("Device synchronized")
 
     try:
+        prev_active = True
+        neutral = Packet(0, 0x08, 0, 0, 0, 0)
         while True:
-            if args.window and not is_window_active(args.window):
+            active = not args.window or is_window_active(args.window)
+            if not active:
+                if prev_active:
+                    adapter.write(neutral.to_bytes())
+                    if args.debug:
+                        print("Window inactive - TX:", neutral.to_bytes().hex())
+                    prev_active = False
                 time.sleep(0.1)
                 continue
+
+            prev_active = True
             packet = build_packet(joy)
             adapter.write(packet.to_bytes())
             if args.debug:

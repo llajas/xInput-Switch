@@ -52,7 +52,7 @@ python python_version/xinput2serial.py [options]
 
 - `--headless`: Run the application without a GUI.
 - `--auto`: Automatically select the first available serial port and controller.
-- `--window "Window Title"`: Specify the window title to bind controller inputs (requires `pywin32` on Windows).
+ - `--window "Window Title"`: Specify the window title to bind controller inputs (requires `pywin32` on Windows). When the window loses focus, a neutral packet is sent and transmission pauses until the window becomes active again.
 - `--port COMx`: Specify a serial port (Python only).
 - `--baudrate N`: Set baud rate, defaults to 1,000,000.
 - `--debug`: Print detected devices and every transmitted packet.
