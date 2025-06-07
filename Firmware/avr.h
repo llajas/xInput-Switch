@@ -36,12 +36,12 @@ void disable_watchdog(void) {
     wdt_disable();
 }
 
-inline void disable_rx_isr(void) {
+static inline void disable_rx_isr(void) {
     // Disable USART receive complete interrupt
     UCSR1B &= ~_BV(RXCIE1);
 }
 
-inline void enable_rx_isr(void) {
+static inline void enable_rx_isr(void) {
     // When the receive complete interrupt enable (RXCIEn) in UCSRnB is set, the USART receive complete interrupt will be
     // executed as long as the RXCn flag is set
     // Here, n=1
@@ -49,7 +49,7 @@ inline void enable_rx_isr(void) {
 }
 
 // Section 19.6.1 of datasheet
-inline void send_byte(uint8_t c) {
+static inline void send_byte(uint8_t c) {
     // Wait for empty transmit buffer
     while (!(UCSR1A & _BV(UDRE1)));
     // Put data into buffer, sends the data
@@ -63,7 +63,7 @@ inline void send_byte(uint8_t c) {
 }*/
 
 // Section 19.7.1 of datasheet
-inline uint8_t recv_byte(void) {
+static inline uint8_t recv_byte(void) {
     // Wait for data to be received
     while (!(UCSR1A & _BV(RXC1)));
     // Get and return received data from buffer
