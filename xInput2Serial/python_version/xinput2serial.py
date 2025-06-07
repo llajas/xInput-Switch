@@ -5,12 +5,13 @@ import serial
 import serial.tools.list_ports
 import time
 import ctypes
+import threading
 
 try:
-    import pygame
-    import pygame.joystick
-except ImportError:
-    pygame = None
+    from inputs import devices, UnpluggedError
+except ImportError:  # pragma: no cover - handled at runtime
+    devices = None
+    UnpluggedError = RuntimeError
 
 try:
     import win32gui
@@ -18,7 +19,7 @@ except ImportError:
     win32gui = None
 
 class XInputJoystick:
-    """Minimal XInput wrapper providing pygame-like API on Windows."""
+    """Minimal XInput wrapper providing a pygame-like API on Windows."""
 
     BUTTONS = [
         0x1000,  # A
@@ -64,6 +65,10 @@ class XInputJoystick:
 
         self._STATE = STATE
         self._state = STATE()
+
+    @property
+    def connected(self) -> bool:
+        return self._poll()
 
     def _poll(self) -> bool:
         res = self.xinput.XInputGetState(self.index, ctypes.byref(self._state))
@@ -218,8 +223,88 @@ def get_first_serial_port(debug: bool = False) -> str | None:
     return ports[0].device if ports else None
 
 
+class InputsJoystick:
+    """Joystick wrapper around the ``inputs`` library."""
+
+    BTN_CODES = [
+        "BTN_SOUTH",
+        "BTN_EAST",
+        "BTN_NORTH",
+        "BTN_WEST",
+        "BTN_TL",
+        "BTN_TR",
+        "BTN_SELECT",
+        "BTN_START",
+        "BTN_MODE",
+        "BTN_THUMBL",
+        "BTN_THUMBR",
+    ]
+
+    AXIS_CODES = [
+        "ABS_X",
+        "ABS_Y",
+        "ABS_Z",
+        "ABS_RX",
+        "ABS_RY",
+        "ABS_RZ",
+    ]
+
+    def __init__(self, index: int = 0, debug: bool = False):
+        if devices is None:
+            raise RuntimeError("inputs library is required")
+        try:
+            self.dev = devices.gamepads[index]
+        except IndexError:
+            raise RuntimeError("No controller found")
+
+        self._buttons = {code: 0 for code in self.BTN_CODES}
+        self._axes = {code: 0 for code in self.AXIS_CODES}
+        self._hat = (0, 0)
+        self.connected = True
+        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self._thread.start()
+        if debug:
+            print(f"Using inputs device: {self.dev}")
+
+    def _poll(self):
+        while True:
+            try:
+                events = self.dev.read()
+            except UnpluggedError:
+                self.connected = False
+                break
+            for e in events:
+                if e.ev_type == "Key":
+                    self._buttons[e.code] = e.state
+                elif e.ev_type == "Absolute":
+                    if e.code == "ABS_HAT0X":
+                        self._hat = (int(e.state), self._hat[1])
+                    elif e.code == "ABS_HAT0Y":
+                        self._hat = (self._hat[0], int(e.state))
+                    else:
+                        self._axes[e.code] = int(e.state)
+
+    def get_button(self, index: int) -> int:
+        code = self.BTN_CODES[index]
+        return 1 if self._buttons.get(code, 0) else 0
+
+    def get_axis(self, index: int) -> float:
+        code = self.AXIS_CODES[index]
+        val = self._axes.get(code, 0)
+        if code in ("ABS_Z", "ABS_RZ", "ABS_GAS", "ABS_BRAKE"):
+            return float(val) / 255.0
+        # sticks
+        return (val / 32767.0) if val >= 0 else (val / 32768.0)
+
+    def get_numhats(self):
+        return 1
+
+    def get_hat(self, index: int):
+        return self._hat if index == 0 else (0, 0)
+
+
 def get_joystick(index: int | None = None, debug: bool = False):
-    """Return a joystick object using XInput on Windows or pygame elsewhere."""
+    """Return a joystick object using ``inputs`` or XInput on Windows."""
     if sys.platform == "win32":
         try:
             joy = XInputJoystick(index if index is not None else 0)
@@ -229,23 +314,13 @@ def get_joystick(index: int | None = None, debug: bool = False):
         except Exception as exc:
             if debug:
                 print("XInput unavailable:", exc)
-    if pygame is None:
-        raise RuntimeError('pygame is required')
-    pygame.joystick.init()
-    count = pygame.joystick.get_count()
-    if debug:
-        print(f"Detected {count} joystick(s)")
-        for i in range(count):
-            j = pygame.joystick.Joystick(i)
-            j.init()
-            print(f"  {i}: {j.get_name()}")
-            j.quit()
-    if count == 0:
-        return None
     idx = index if index is not None else 0
-    joy = pygame.joystick.Joystick(idx)
-    joy.init()
-    return joy
+    try:
+        return InputsJoystick(idx, debug)
+    except RuntimeError as exc:
+        if debug:
+            print(exc)
+        return None
 
 
 def is_window_active(title: str) -> bool:
@@ -286,8 +361,6 @@ DPAD_MAPPING = {
 
 
 def build_packet(joy) -> Packet:
-    if pygame and hasattr(joy, 'get_id'):
-        pygame.event.pump()
     buttons = 0
     for btn_idx, mask in BTN_MAPPING.items():
         if joy.get_button(btn_idx):
@@ -346,6 +419,10 @@ def main():
         neutral = Packet(0, 0x08, 0, 0, 0, 0)
         while True:
             active = not args.window or is_window_active(args.window)
+            if hasattr(joy, 'connected') and not joy.connected:
+                if args.debug:
+                    print('Controller disconnected')
+                break
             if not active:
                 if prev_active:
                     adapter.write(neutral.to_bytes())
