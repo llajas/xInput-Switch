@@ -54,6 +54,7 @@ python python_version/xinput2serial.py [options]
 - `--window "Window Title"`: Specify the window title to bind controller inputs.
 - `--port COMx`: Specify a serial port (Python only).
 - `--baudrate N`: Set baud rate, defaults to 1,000,000.
+- `--debug`: Print detected devices and transmitted packets.
 
 ##### Example
 

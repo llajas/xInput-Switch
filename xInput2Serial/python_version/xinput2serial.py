@@ -115,21 +115,33 @@ def parse_args():
     parser.add_argument('--controller', type=int)
     parser.add_argument('--window')
     parser.add_argument('--auto', action='store_true')
+    parser.add_argument('--debug', action='store_true')
     return parser.parse_args()
 
 
-def get_first_serial_port() -> str | None:
+def get_first_serial_port(debug: bool = False) -> str | None:
     ports = list(serial.tools.list_ports.comports())
+    if debug:
+        for p in ports:
+            print(f"Found serial port: {p.device}")
     return ports[0].device if ports else None
 
 
-def get_joystick(index: int | None = None):
+def get_joystick(index: int | None = None, debug: bool = False):
     if pygame is None:
         raise RuntimeError('pygame is required')
     pygame.joystick.init()
     pygame.display.init()
     pygame.display.set_mode((1, 1))
-    if pygame.joystick.get_count() == 0:
+    count = pygame.joystick.get_count()
+    if debug:
+        print(f"Detected {count} joystick(s)")
+        for i in range(count):
+            j = pygame.joystick.Joystick(i)
+            j.init()
+            print(f"  {i}: {j.get_name()}")
+            j.quit()
+    if count == 0:
         return None
     idx = index if index is not None else 0
     joy = pygame.joystick.Joystick(idx)
@@ -198,8 +210,8 @@ def build_packet(joy) -> Packet:
 def main():
     args = parse_args()
 
-    port = args.port or get_first_serial_port()
-    joy = get_joystick(args.controller)
+    port = args.port or get_first_serial_port(args.debug)
+    joy = get_joystick(args.controller, args.debug)
 
     if args.auto:
         if port is None:
@@ -211,7 +223,11 @@ def main():
             print('No serial port or controller available')
             return
 
+    if args.debug:
+        print(f"Using serial port {port} at {args.baudrate} baud")
     adapter = SerialAdapter(port, args.baudrate)
+    if args.debug:
+        print("Waiting for device...")
     if not adapter.sync():
         print('Failed to sync with device')
         adapter.close()
@@ -224,6 +240,8 @@ def main():
                 continue
             packet = build_packet(joy)
             adapter.write(packet.to_bytes())
+            if args.debug:
+                print("TX:", packet.to_bytes().hex())
             time.sleep(0.01)
     except KeyboardInterrupt:
         pass
