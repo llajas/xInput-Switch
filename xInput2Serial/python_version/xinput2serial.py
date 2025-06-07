@@ -4,12 +4,11 @@ import sys
 import serial
 import serial.tools.list_ports
 import time
-import struct
 
+# Ensure pygame can run headless
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 if sys.platform == "win32":
-    # Ensure SDL uses the raw input driver to detect virtual controllers like
-    # Moonlight's "RAW INPUT" device.
-    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    # Detect virtual controllers like Moonlight's "RAW INPUT" device
     os.environ.setdefault("SDL_JOYSTICK_RAWINPUT", "1")
 
 try:
@@ -57,20 +56,25 @@ class SerialAdapter:
     def read(self, size: int = 1) -> bytes:
         return self.serial.read(size)
 
-    def sync(self) -> bool:
+    def sync(self, debug: bool = False) -> bool:
         self.serial.write(bytes([COMMAND_SYNC_START]) * 9)
         start = time.time()
+        stage = 0
         while time.time() - start < 1.0:
             if self.serial.in_waiting:
                 data = self.serial.read(self.serial.in_waiting)
                 if data and data[-1] == RESP_SYNC_START:
+                    stage = 1
                     self.serial.write(bytes([COMMAND_SYNC_1]))
                     resp = self.serial.read(1)
                     if resp and resp[0] == RESP_SYNC_1:
+                        stage = 2
                         self.serial.write(bytes([COMMAND_SYNC_2]))
                         resp = self.serial.read(1)
                         if resp and resp[0] == RESP_SYNC_OK:
                             return True
+        if debug:
+            print(f"Sync failed at stage {stage}")
         return False
 
     def close(self):
@@ -106,6 +110,12 @@ class Packet:
         if abs(buf[6] - 0x80) < 10:
             buf[6] = 0x80
         return bytes(buf)
+
+    def __repr__(self) -> str:
+        return (
+            f"Packet(buttons=0x{self.buttons:04X}, dpad=0x{self.dpad:02X}, "
+            f"lx={self.lx:.2f}, ly={self.ly:.2f}, rx={self.rx:.2f}, ry={self.ry:.2f})"
+        )
 
 
 def parse_args():
@@ -234,7 +244,7 @@ def main():
     adapter = SerialAdapter(port, args.baudrate)
     if args.debug:
         print("Waiting for device...")
-    if not adapter.sync():
+    if not adapter.sync(args.debug):
         print('Failed to sync with device')
         adapter.close()
         return
@@ -259,7 +269,7 @@ def main():
             packet = build_packet(joy)
             adapter.write(packet.to_bytes())
             if args.debug:
-                print("TX:", packet.to_bytes().hex())
+                print("TX:", packet.to_bytes().hex(), packet)
             time.sleep(0.01)
     except KeyboardInterrupt:
         pass

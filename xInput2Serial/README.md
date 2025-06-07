@@ -9,6 +9,7 @@ The **XInput to Serial Converter** application maps controller inputs to a seria
 - **Auto-Detection:** Automatically detects and connects to the first available serial port and controller.
 - **Defaults:** When run with `--auto`, the first detected controller and COM port are used with a baud rate of 1&nbsp;000&nbsp;000 (1&nbsp;Mbps).
 - **Raw Input Support:** On Windows, the Python script sets `SDL_JOYSTICK_RAWINPUT=1` so virtual devices like Moonlight's "RAW INPUT" controller are detected.
+- **Headless Operation:** `SDL_VIDEODRIVER` is set to `dummy` so the Python version runs without opening a window on any platform.
 
 #### Requirements
 
@@ -55,7 +56,7 @@ python python_version/xinput2serial.py [options]
  - `--window "Window Title"`: Specify the window title to bind controller inputs (requires `pywin32` on Windows). When the window loses focus, a neutral packet is sent and transmission pauses until the window becomes active again.
 - `--port COMx`: Specify a serial port (Python only).
 - `--baudrate N`: Set baud rate, defaults to 1,000,000.
-- `--debug`: Print detected devices and every transmitted packet.
+- `--debug`: Print detected devices, raw input values, and every transmitted packet.
 
 ##### Example
 
