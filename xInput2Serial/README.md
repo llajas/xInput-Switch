@@ -56,3 +56,18 @@ This command starts the application in headless mode, auto-selects the first ava
 - **ClientController.java**: Manages the connection between the controller inputs and the serial device.
 - **SerialAdapter.java**: Handles communication with the serial device.
 - **JamepadManager.java**: Manages the connection to gamepads using the Jamepad library.
+
+#### Wiring
+
+When connecting the CH340 USB-to-serial adapter, wire it directly to the Arduino as follows:
+
+- **TX -> TX**
+- **RX -> RX**
+- **5V -> 5V**
+- **GND -> GND**
+
+The CH340 handles the level conversion, so the signals do not need to be crossed.
+
+#### Troubleshooting
+
+Occasionally the device may not be detected by the Switch. Performing a quick power cycle of the Nintendo Switch dock has proven to restore normal operation.
