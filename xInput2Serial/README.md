@@ -8,6 +8,7 @@ The **XInput to Serial Converter** application maps controller inputs to a seria
 - **Window Title Binding:** Controller inputs are directed to a serial device only when a specified window is active.
 - **Auto-Detection:** Automatically detects and connects to the first available serial port and controller.
 - **Defaults:** When run with `--auto`, the first detected controller and COM port are used with a baud rate of 1&nbsp;000&nbsp;000 (1&nbsp;Mbps).
+- **Raw Input Support:** On Windows, the Python script sets `SDL_JOYSTICK_RAWINPUT=1` so virtual devices like Moonlight's "RAW INPUT" controller are detected.
 
 #### Requirements
 

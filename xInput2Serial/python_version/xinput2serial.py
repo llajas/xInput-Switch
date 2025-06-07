@@ -1,8 +1,16 @@
 import argparse
+import os
+import sys
 import serial
 import serial.tools.list_ports
 import time
 import struct
+
+if sys.platform == "win32":
+    # Ensure SDL uses the raw input driver to detect virtual controllers like
+    # Moonlight's "RAW INPUT" device.
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    os.environ.setdefault("SDL_JOYSTICK_RAWINPUT", "1")
 
 try:
     import pygame
