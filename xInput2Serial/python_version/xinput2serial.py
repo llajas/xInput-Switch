@@ -4,7 +4,6 @@ import sys
 import serial
 import serial.tools.list_ports
 import time
-import ctypes
 
 # Ensure pygame can run headless
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -22,92 +21,6 @@ try:
     import win32gui
 except ImportError:
     win32gui = None
-
-class XInputJoystick:
-    """Minimal XInput wrapper providing pygame-like API on Windows."""
-
-    BUTTONS = [
-        0x1000,  # A
-        0x2000,  # B
-        0x4000,  # X
-        0x8000,  # Y
-        0x0100,  # LB
-        0x0200,  # RB
-        0x0020,  # BACK
-        0x0010,  # START
-        0x0400,  # GUIDE
-        0x0040,  # LTHUMB
-        0x0080,  # RTHUMB
-    ]
-
-    def __init__(self, index: int = 0):
-        self.index = index
-        for dll in ("xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"):
-            try:
-                self.xinput = ctypes.windll.LoadLibrary(dll)
-                break
-            except OSError:
-                self.xinput = None
-        if not getattr(self, "xinput", None):
-            raise RuntimeError("XInput DLL not found")
-
-        class GAMEPAD(ctypes.Structure):
-            _fields_ = [
-                ("wButtons", ctypes.c_ushort),
-                ("bLeftTrigger", ctypes.c_ubyte),
-                ("bRightTrigger", ctypes.c_ubyte),
-                ("sThumbLX", ctypes.c_short),
-                ("sThumbLY", ctypes.c_short),
-                ("sThumbRX", ctypes.c_short),
-                ("sThumbRY", ctypes.c_short),
-            ]
-
-        class STATE(ctypes.Structure):
-            _fields_ = [
-                ("dwPacketNumber", ctypes.c_uint),
-                ("Gamepad", GAMEPAD),
-            ]
-
-        self._STATE = STATE
-        self._state = STATE()
-
-    def _poll(self) -> bool:
-        res = self.xinput.XInputGetState(self.index, ctypes.byref(self._state))
-        return res == 0
-
-    def get_button(self, index: int) -> int:
-        if not self._poll():
-            return 0
-        return 1 if (self._state.Gamepad.wButtons & self.BUTTONS[index]) else 0
-
-    def get_axis(self, index: int) -> float:
-        if not self._poll():
-            return 0.0
-        gp = self._state.Gamepad
-        if index == 0:
-            return gp.sThumbLX / 32767.0
-        if index == 1:
-            return -gp.sThumbLY / 32767.0
-        if index == 2:
-            return gp.bLeftTrigger / 255.0
-        if index == 3:
-            return gp.sThumbRX / 32767.0
-        if index == 4:
-            return -gp.sThumbRY / 32767.0
-        if index == 5:
-            return gp.bRightTrigger / 255.0
-        return 0.0
-
-    def get_numhats(self):
-        return 1
-
-    def get_hat(self, index: int):
-        if not self._poll():
-            return (0, 0)
-        w = self._state.Gamepad.wButtons
-        x = (1 if w & 0x0008 else 0) + (-1 if w & 0x0004 else 0)
-        y = (1 if w & 0x0001 else 0) + (-1 if w & 0x0002 else 0)
-        return (x, y)
 
 
 COMMAND_SYNC_1 = 0x33
@@ -206,7 +119,7 @@ class Packet:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="xinput to serial")
+    parser = argparse.ArgumentParser(description="SDL2 gamepad to serial")
     parser.add_argument('--port')
     parser.add_argument('--baudrate', type=int, default=DEFAULT_BAUDRATE)
     parser.add_argument('--controller', type=int)
@@ -225,16 +138,7 @@ def get_first_serial_port(debug: bool = False) -> str | None:
 
 
 def get_joystick(index: int | None = None, debug: bool = False):
-    """Return a joystick object using XInput on Windows or pygame elsewhere."""
-    if sys.platform == "win32":
-        try:
-            joy = XInputJoystick(index if index is not None else 0)
-            if debug:
-                print("Using XInput for controller", joy.index)
-            return joy
-        except Exception as exc:
-            if debug:
-                print("XInput unavailable:", exc)
+    """Return a joystick object using SDL2 via pygame."""
     if pygame is None:
         raise RuntimeError('pygame is required')
     pygame.joystick.init()
@@ -294,7 +198,8 @@ DPAD_MAPPING = {
 
 
 def build_packet(joy) -> Packet:
-    if pygame and hasattr(joy, 'get_id'):
+    # Pump the SDL event queue so axis/button states update.
+    if pygame:
         pygame.event.pump()
     buttons = 0
     for btn_idx, mask in BTN_MAPPING.items():
