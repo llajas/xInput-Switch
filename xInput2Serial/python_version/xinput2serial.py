@@ -210,6 +210,10 @@ def build_packet(joy) -> Packet:
 def main():
     args = parse_args()
 
+    if args.window and win32gui is None:
+        print("Error: --window requires the pywin32 package (win32gui module)")
+        return
+
     port = args.port or get_first_serial_port(args.debug)
     joy = get_joystick(args.controller, args.debug)
 
@@ -232,6 +236,8 @@ def main():
         print('Failed to sync with device')
         adapter.close()
         return
+    if args.debug:
+        print("Device synchronized")
 
     try:
         while True:

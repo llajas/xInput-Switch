@@ -17,7 +17,8 @@ The **XInput to Serial Converter** application maps controller inputs to a seria
 - Jamepad library for gamepad support
 - JNA library for interacting with native OS features
 - Python 3.10 or later (for the optional Python implementation)
-- `pyserial` and `pygame` libraries, plus `pywin32` on Windows if window binding is desired
+ - `pyserial` and `pygame` libraries
+ - `pywin32` on Windows if the `--window` option will be used
 
 #### Building the Package
 
@@ -51,10 +52,10 @@ python python_version/xinput2serial.py [options]
 
 - `--headless`: Run the application without a GUI.
 - `--auto`: Automatically select the first available serial port and controller.
-- `--window "Window Title"`: Specify the window title to bind controller inputs.
+- `--window "Window Title"`: Specify the window title to bind controller inputs (requires `pywin32` on Windows).
 - `--port COMx`: Specify a serial port (Python only).
 - `--baudrate N`: Set baud rate, defaults to 1,000,000.
-- `--debug`: Print detected devices and transmitted packets.
+- `--debug`: Print detected devices and every transmitted packet.
 
 ##### Example
 
