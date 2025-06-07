@@ -19,7 +19,7 @@ The **XInput to Serial Converter** application maps controller inputs to a seria
 - Jamepad library for gamepad support
 - JNA library for interacting with native OS features
 - Python 3.10 or later (for the optional Python implementation)
- - `pyserial` and `pygame` libraries
+- `pyserial` and `inputs` libraries
  - `pywin32` on Windows if the `--window` option will be used
 
 #### Building the Package
