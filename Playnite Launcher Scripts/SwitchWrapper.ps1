@@ -10,7 +10,7 @@ param(
     [string]$ObsDir          = "C:\Program Files\obs-studio\bin\64bit",
     [string]$PythonExe       = "python.exe",
     [string]$BaseDir         = "C:\Nintendo Automation\xInput-Switch",
-    [string]$ProjectorWS     = (Join-Path $BaseDir "start_obs_fullscreen.py"),
+    [string]$ProjectorWS     = (Join-Path $BaseDir "Playnite Launcher Scripts\start_obs_fullscreen.py"),
     [string]$XInputScript    = (Join-Path $BaseDir "xInput2Serial\xinput2serial.py"),
     [string]$ProjectorTitle  = "Windowed Projector (Source) - Scene"
 )
