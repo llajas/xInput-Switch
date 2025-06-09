@@ -7,13 +7,16 @@
 #>
 
 param(
-    [string]$ObsExe          = "C:\Program Files\obs-studio\bin\64bit\obs64.exe",
-    [string]$ObsWorkDir      = "C:\Program Files\obs-studio\bin\64bit",
+    [string]$ObsDir          = "C:\Program Files\obs-studio\bin\64bit",
     [string]$PythonExe       = "python.exe",
-    [string]$ProjectorWS     = "C:\Users\laure\OneDrive\Games\Automation\start_obs_fullscreen.py",
-    [string]$XInputScript    = "C:\Users\laure\OneDrive\Games\Automation\Nintendo Switch\xinput2serial.py",
+    [string]$BaseDir         = "C:\Nintendo Automation\xInput-Switch",
+    [string]$ProjectorWS     = (Join-Path $BaseDir "start_obs_fullscreen.py"),
+    [string]$XInputScript    = (Join-Path $BaseDir "xInput2Serial\xinput2serial.py"),
     [string]$ProjectorTitle  = "Windowed Projector (Source) - Scene"
 )
+
+$ObsExe    = Join-Path $ObsDir "obs64.exe"
+$ObsWorkDir = $ObsDir
 
 function Log-Message($msg) {
     Write-Host "[Wrapper] $msg"
