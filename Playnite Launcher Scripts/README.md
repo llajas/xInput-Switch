@@ -1,31 +1,37 @@
 ## Helper Scripts
 
+**Included Files**
+
+- `SwitchWrapper.ps1`: PowerShell wrapper to launch OBS, start the projector, and run xinput2serial with monitoring and cleanup.
+- `start_obs_fullscreen.py`: Python script to open the OBS projector window via WebSocket.
+
 ### PowerShell Script
 
 **Overview**
 
-The PowerShell script is used by Playnite during game launch to automate the setup and execution of the Java application, OBS, and Python scripts. It handles starting the necessary software, passing parameters, and monitoring processes. To implement, add it to a custom emulator defined in Playnite.
+The PowerShell script (`SwitchWrapper.ps1`) automates launching OBS, invoking the Python projector script, and running the xinput2serial input script, with built-in monitoring and cleanup.
 
 **Usage**
 
 Starting the Script:
 
 ```powershell
-.\YourScriptName.ps1 -windowTitle "Your Desired Window Title"
+.\SwitchWrapper.ps1 -ProjectorTitle "Your Desired Projector Window Title"
 ```
 
-Replace `YourScriptName.ps1` with the name of your PowerShell script file and `"Your Desired Window Title"` with the actual title of the window you want to monitor.
+Replace `SwitchWrapper.ps1` with the name of your PowerShell script file and `"Your Desired Projector Window Title"` with the actual title of the projector window you want to monitor.
 
 **Parameters**
 
-- `-windowTitle`: Specifies the title of the window that the Java application should monitor for activity.
+- `-ProjectorTitle`: Specifies the title of the projector window to monitor for xinput2serial.
 
 **Script Structure**
 
-1. OBS Startup: Checks if OBS is running; if not, it starts OBS and logs the process ID.
-2. Python Script Execution: Executes a Python script, typically used to automate other tasks, such as setting OBS to fullscreen.
-3. Java Application Launch: Starts the Java application with specified arguments, including headless mode and window title.
-4. Monitoring: Continuously monitors the OBS process, ensuring that the Java application and other processes are terminated if OBS is closed.
+1. OBS Startup: Checks if OBS is running; if not, starts OBS.
+2. Projector Activation: Executes the Python script to open the OBS projector.
+3. xinput2serial Launch: Starts the xinput2serial Python script bound to the projector window.
+4. Monitoring: Waits for the projector window to appear, then monitors it until closure.
+5. Cleanup: Stops xinput2serial and gracefully shuts down OBS.
 
 **Logging**
 
