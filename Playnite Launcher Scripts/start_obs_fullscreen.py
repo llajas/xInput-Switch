@@ -1,31 +1,33 @@
 import asyncio
 import simpleobsws
 import time
-import pygetwindow as gw
+import sys
 
-# Define the parameters for the WebSocket connection
+# Define OBS WebSocket parameters
 parameters = simpleobsws.IdentificationParameters(ignoreNonFatalRequestChecks=False)
 ws = simpleobsws.WebSocketClient(url='ws://127.0.0.1:4455', identification_parameters=parameters)
 
-async def make_request():
+async def open_projector():
     await ws.connect()
-    await ws.wait_until_identified()  # Ensure the client is identified
+    await ws.wait_until_identified()
 
-    # Open source projector with specified geometry
+    # Open projector on specific source and geometry
     data = {
-        'sourceName': 'Scene',  # Replace with your source name
+        'sourceName': 'Scene',       # OBS scene source name
+        'projector': 'windowed',      # 'windowed' for projector, not fullscreen plugin
         'projectorGeometry': 'AdnQywADAAAAAAAIAAAAAAAAB3cAAAQvAAAACAAAAB8AAAeHAAAEQwAAAAAABAAAB4AAAAAAAAAAAAAAB38AAAQ3'
     }
+    # Use the correct request for pop-up window projector
     request = simpleobsws.Request('OpenSourceProjector', data)
     result = await ws.call(request)
-    print(result)
-
+    print(f"OpenSourceProjector result: {result}")
     await ws.disconnect()
 
-time.sleep(2)  # wait two seconds to make sure OBS has been started appropriately
-asyncio.run(make_request())
-
-# Bring OBS window to the foreground
-time.sleep(2)  # wait for the projector to open
-obs_window = gw.getWindowsWithTitle('OBS')[0]
-obs_window.activate()
+if __name__ == '__main__':
+    time.sleep(2)
+    try:
+        asyncio.run(open_projector())
+    except Exception as e:
+        print(f"OBS WS error: {e}")
+        sys.exit(1)
+    sys.exit(0)
