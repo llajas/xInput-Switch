@@ -12,6 +12,7 @@ This Python-only implementation is headless and uses the native XInput API on Wi
 - **Auto-detection:** Finds and connects to the first available COM port and Xbox controller.
 - **HID support:** HIDAPI devices are detected alongside COM ports and selected automatically.
 - **DualShock 4 support:** Falls back to a connected DS4 when no XInput pad is detected.
+  Known product IDs `0x05C4`, `0x09CC`, and other variants are matched automatically.
 - **Manual selection:** Prompt for COM port and controller slot unless `--auto` is specified.
 - **Native XInput backend:** Uses `ctypes` to call the Windows XInput API directly—no SDL or other frameworks required.  
 - **Failsafe support:** If the controller disconnects, or the serial link breaks, the Switch will pause or return to the HOME menu per built-in firmware logic.
@@ -64,7 +65,8 @@ The CH340 handles level shifting; no crossover is needed.
 - Ensure your target window title matches exactly (case insensitive).
 - Use `--debug` to verify packet data and timing.
 - For DualShock 4 support, install the `hid` Python package with `pip install hid`
-  and connect the controller via Bluetooth or USB. If HID devices are still not
+  and connect the controller via Bluetooth or USB. Official models with product
+  IDs `0x05C4` or `0x09CC` are supported. If HID devices are still not
   listed, ensure Python can load the `hid` extension—architecture mismatches can
   prevent the module from loading.
   On Windows, you may also need the accompanying `hidapi.dll` from the HIDAPI

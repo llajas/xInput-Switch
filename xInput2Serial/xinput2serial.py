@@ -87,6 +87,7 @@ class PadDS:
     """DualShock 4 controller using hidapi."""
 
     DS4_VID = 0x054C  # Sony
+    DS4_PIDS = {0x05C4, 0x09CC, 0x0BA0, 0x0AAA}
 
     def __init__(self, path: str | None = None):
         if hid is None:
@@ -102,12 +103,8 @@ class PadDS:
 
     @classmethod
     def _find(cls) -> str | None:
-        for d in hid.enumerate():
-            if d.get("vendor_id") != cls.DS4_VID:
-                continue
-            if d.get("usage_page") != 1:
-                continue
-            if d.get("usage") not in (4, 5):  # joystick or gamepad interface
+        for d in hid.enumerate(vendor_id=cls.DS4_VID):
+            if d.get("product_id") not in cls.DS4_PIDS:
                 continue
             path = d.get("path")
             if isinstance(path, bytes):
