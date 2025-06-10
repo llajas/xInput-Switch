@@ -64,4 +64,6 @@ The CH340 handles level shifting; no crossover is needed.
 - Ensure your target window title matches exactly (case insensitive).
 - Use `--debug` to verify packet data and timing.
 - For DualShock 4 support, install the `hid` Python package with `pip install hid`
-  and connect the controller via Bluetooth or USB.
+  and connect the controller via Bluetooth or USB. If HID devices are still not
+  listed, ensure Python can load the `hid` extension—architecture mismatches can
+  prevent the module from loading.

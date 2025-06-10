@@ -38,12 +38,14 @@ try:
 except ImportError:
     mouse = None
 # optional HIDAPI support -- try both common package names
+hid_err = None
 try:
     import hid  # "hid" (pyhidapi)
-except ImportError:
+except Exception as e:  # pragma: no cover - optional dependency
+    hid_err = e
     try:
         import hidapi as hid
-    except ImportError:  # pragma: no cover - optional dependency
+    except Exception:
         hid = None
 
 from ctypes import wintypes
@@ -85,7 +87,6 @@ class PadDS:
     """DualShock 4 controller using hidapi."""
 
     DS4_VID = 0x054C  # Sony
-    DS4_PIDS = {0x05C4, 0x09CC, 0x0BA0, 0x0CE6, 0x0CDA, 0x0DDD}
 
     def __init__(self, path: str | None = None):
         if hid is None:
@@ -104,10 +105,8 @@ class PadDS:
         for d in hid.enumerate():
             if d.get("vendor_id") != cls.DS4_VID:
                 continue
-            if d.get("product_id") not in cls.DS4_PIDS:
-                continue
-            if d.get("usage_page") not in (1, 0x01) or d.get("usage") != 5:
-                # Skip non-gamepad interfaces such as motion or configuration
+            # Prefer the gamepad interface if available
+            if d.get("usage") not in (4, 5):
                 continue
             path = d.get("path")
             if isinstance(path, bytes):
@@ -380,7 +379,8 @@ if __name__=="__main__":
                 if args.debug:
                     print(f"DualShock 4 init failed: {e}")
         elif not pad.ok() and hid is None and args.debug:
-            print("hidapi not installed; run 'pip install hid' for DualShock 4 support")
+            msg = "hidapi not installed" if hid_err is None else f"hidapi unavailable: {hid_err}"
+            print(f"{msg}; run 'pip install hid' for DualShock 4 support")
     if not pad.ok():
         sys.exit("Controller not connected")
 
@@ -413,7 +413,8 @@ if __name__=="__main__":
                             if args.debug:
                                 print(f"DualShock 4 init failed: {e}")
                     elif not pad.ok() and hid is None and args.debug:
-                        print("hidapi not installed; run 'pip install hid' for DualShock 4 support")
+                        msg = "hidapi not installed" if hid_err is None else f"hidapi unavailable: {hid_err}"
+                        print(f"{msg}; run 'pip install hid' for DualShock 4 support")
                 continue
             if not ((not args.window) or focus_ok(args.window)):
                 if was_focused and args.debug: print("Window inactive – neutral")
