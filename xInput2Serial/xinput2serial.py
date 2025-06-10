@@ -98,11 +98,17 @@ class PadDS:
     @classmethod
     def _find(cls) -> str | None:
         for d in hid.enumerate():
-            if d.get("vendor_id") == cls.DS4_VID and d.get("product_id") in cls.DS4_PIDS:
-                path = d.get("path")
-                if isinstance(path, bytes):
-                    path = path.decode(errors="ignore")
-                return path
+            if d.get("vendor_id") != cls.DS4_VID:
+                continue
+            if d.get("product_id") not in cls.DS4_PIDS:
+                continue
+            if d.get("usage_page") not in (1, 0x01) or d.get("usage") != 5:
+                # Skip non-gamepad interfaces such as motion or configuration
+                continue
+            path = d.get("path")
+            if isinstance(path, bytes):
+                path = path.decode(errors="ignore")
+            return path
         return None
 
     def ok(self) -> bool:
@@ -358,8 +364,11 @@ if __name__=="__main__":
                 pad = PadDS()
                 if args.debug:
                     print("Falling back to DualShock 4")
-            except Exception:
-                pass
+            except Exception as e:
+                if args.debug:
+                    print(f"DualShock 4 init failed: {e}")
+        elif not pad.ok() and hid is None and args.debug:
+            print("hid library not installed; DualShock 4 unavailable")
     if not pad.ok():
         sys.exit("Controller not connected")
 
@@ -386,8 +395,13 @@ if __name__=="__main__":
                     if not pad.ok() and hid is not None:
                         try:
                             pad = PadDS()
-                        except Exception:
-                            pass
+                            if args.debug:
+                                print("Reconnected using DualShock 4")
+                        except Exception as e:
+                            if args.debug:
+                                print(f"DualShock 4 init failed: {e}")
+                    elif not pad.ok() and hid is None and args.debug:
+                        print("hid library not installed; DualShock 4 unavailable")
                 continue
             if not ((not args.window) or focus_ok(args.window)):
                 if was_focused and args.debug: print("Window inactive – neutral")
