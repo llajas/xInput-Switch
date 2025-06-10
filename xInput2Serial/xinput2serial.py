@@ -112,6 +112,102 @@ class HIDUART:
     def close(self):
         self.h.close()
 
+# ───────── DualShock 4 backend via HID ─────────
+class PadDS:
+    """DualShock 4 controller using hidapi."""
+
+    DS4_VID = 0x054C  # Sony
+    DS4_PIDS = {0x05C4, 0x09CC, 0x0BA0, 0x0CE6, 0x0CDA, 0x0DDD}
+
+    def __init__(self, path: str | None = None):
+        if hid is None:
+            raise RuntimeError("hidapi library required for DualShock mode")
+        if path is None:
+            path = self._find()
+            if path is None:
+                raise RuntimeError("DualShock 4 not found")
+        self.slot = 0
+        self.h = hid.Device(path=path)
+        self.h.set_nonblocking(True)
+        self.buf = bytearray(64)
+
+    @classmethod
+    def _find(cls) -> str | None:
+        for d in hid.enumerate():
+            if d.get("vendor_id") == cls.DS4_VID and d.get("product_id") in cls.DS4_PIDS:
+                path = d.get("path")
+                if isinstance(path, bytes):
+                    path = path.decode(errors="ignore")
+                return path
+        return None
+
+    def ok(self) -> bool:
+        try:
+            data = self.h.read(64)
+        except OSError:
+            return False
+        if data:
+            self.buf[: len(data)] = data
+        return True
+
+    def _update(self):
+        data = self.h.read(64)
+        if data:
+            self.buf[: len(data)] = data
+
+    def btn(self, i: int) -> bool:
+        self._update()
+        b5, b6, b7 = self.buf[5], self.buf[6], self.buf[7]
+        if i == 0:
+            return bool(b5 & 32)  # Cross → A
+        if i == 1:
+            return bool(b5 & 64)  # Circle → B
+        if i == 2:
+            return bool(b5 & 16)  # Square → X
+        if i == 3:
+            return bool(b5 & 128)  # Triangle → Y
+        if i == 4:
+            return bool(b6 & 1)  # L1
+        if i == 5:
+            return bool(b6 & 2)  # R1
+        if i == 6:
+            return bool(b6 & 16)  # Share → BACK
+        if i == 7:
+            return bool(b6 & 32)  # Options → START
+        if i == 8:
+            return bool(b6 & 64)  # L3
+        if i == 9:
+            return bool(b6 & 128)  # R3
+        if i == 10:
+            return bool(b7 & 1)  # PS button
+        return False
+
+    def axis(self, i: int) -> float:
+        self._update()
+        if i == 0:
+            return (self.buf[1] - 128) / 127
+        if i == 1:
+            return (self.buf[2] - 128) / 127
+        if i == 2:
+            return self.buf[8] / 255
+        if i == 3:
+            return (self.buf[3] - 128) / 127
+        if i == 4:
+            return (self.buf[4] - 128) / 127
+        if i == 5:
+            return self.buf[9] / 255
+        return 0.0
+
+    def hat(self) -> tuple[int, int]:
+        self._update()
+        d = self.buf[5] & 0x0F
+        hx = 1 if d in (1, 2, 3) else (-1 if d in (5, 6, 7) else 0)
+        hy = 1 if d in (0, 1, 7) else (-1 if d in (3, 4, 5) else 0)
+        return (hx, hy)
+
+    def raw(self) -> int:
+        return (self.buf[5] << 16) | (self.buf[6] << 8) | self.buf[7]
+
 class Packet:
     def __init__(self, b, d, lx, ly, rx, ry):
         self.b, self.d, self.lx, self.ly, self.rx, self.ry = b, d, lx, ly, rx, ry
@@ -235,6 +331,7 @@ def focus_ok(title:str):
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("--keyboard",action="store_true")
+    ap.add_argument("--dualshock", action="store_true", help="Use DualShock 4 via HID")
     ap.add_argument("--port")
     ap.add_argument("--controller",type=int)
     ap.add_argument("--window")
@@ -256,7 +353,12 @@ if __name__=="__main__":
         ports=list_ports(); port=ports[0] if ports else None
     if not port: sys.exit("No serial port selected")
 
-    pad = PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else 0)
+    if args.keyboard:
+        pad = PadK(center)
+    elif args.dualshock:
+        pad = PadDS()
+    else:
+        pad = PadX(args.controller if args.controller is not None else 0)
     if not pad.ok(): sys.exit("Controller not connected")
 
     ser = HIDUART(port[4:]) if port.startswith('hid:') else UART(port)
@@ -272,9 +374,15 @@ if __name__=="__main__":
         while True:
             if not pad.ok():
                 ser.write(neutral.pack())
-                if args.debug: print("Pad lost – neutral")
+                if args.debug:
+                    print("Pad lost – neutral")
                 time.sleep(RETRY)
-                pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else 0)
+                if args.keyboard:
+                    pad = PadK(center)
+                elif args.dualshock:
+                    pad = PadDS()
+                else:
+                    pad = PadX(args.controller if args.controller is not None else 0)
                 continue
             if not ((not args.window) or focus_ok(args.window)):
                 if was_focused and args.debug: print("Window inactive – neutral")
