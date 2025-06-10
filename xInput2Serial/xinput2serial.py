@@ -321,14 +321,18 @@ def build_packet(p):
     return Packet(b,HAT_MAP[(hx,hy)],p.axis(0),p.axis(1),p.axis(3),p.axis(4)), b
 
 def list_ports() -> list[str]:
-    """Return available serial ports; fall back to HID if none found."""
-    ports = [p.device for p in serial.tools.list_ports.comports()]
-    if not ports and hid is not None:
+    """Return available COM and HIDAPI ports."""
+    ports: list[str] = []
+    for p in serial.tools.list_ports.comports():
+        # ignore placeholder ports without a VID/PID (e.g. built-in COM1)
+        if getattr(p, "vid", None) is not None:
+            ports.append(p.device)
+    if hid is not None:
         try:
             for d in hid.enumerate():
-                path = d.get('path')
+                path = d.get("path")
                 if isinstance(path, bytes):
-                    path = path.decode(errors='ignore')
+                    path = path.decode(errors="ignore")
                 ports.append(f"hid:{path}")
         except Exception:
             pass
@@ -354,10 +358,14 @@ if __name__=="__main__":
         cx,cy=(l+r)//2,(t+b)//2
         center=(cx,cy)
 
-    port=args.port
+    port = args.port
     if not port:
-        ports = list_ports(); port = ports[0] if ports else None
-    if not port: sys.exit("No serial port selected")
+        ports = list_ports()
+        if args.debug:
+            print("Ports found:", ports or "none")
+        port = ports[0] if ports else None
+    if not port:
+        sys.exit("No serial port selected")
 
     if args.keyboard:
         pad = PadK(center)

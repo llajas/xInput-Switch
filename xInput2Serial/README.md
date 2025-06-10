@@ -10,7 +10,7 @@ This Python-only implementation is headless and uses the native XInput API on Wi
   to prevent the firmware failsafe from closing the input when no user commands are issued.  
 - **Window title binding:** Only streams packets when a specified window is active (requires `pywin32`).  
 - **Auto-detection:** Finds and connects to the first available COM port and Xbox controller.
-- **HID fallback:** If no COM ports are found, HID-based serial devices are tried automatically.
+- **HID support:** HIDAPI devices are detected alongside COM ports and selected automatically.
 - **DualShock 4 support:** Falls back to a connected DS4 when no XInput pad is detected.
 - **Manual selection:** Prompt for COM port and controller slot unless `--auto` is specified.
 - **Native XInput backend:** Uses `ctypes` to call the Windows XInput API directly—no SDL or other frameworks required.  
