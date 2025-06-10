@@ -63,5 +63,5 @@ The CH340 handles level shifting; no crossover is needed.
 - If the Switch fails to detect the controller, power-cycle the dock and retry.
 - Ensure your target window title matches exactly (case insensitive).
 - Use `--debug` to verify packet data and timing.
-- For DualShock 4 support, install the `hid` Python package and connect the
-  controller via Bluetooth or USB.
+- For DualShock 4 support, install the `hid` Python package with `pip install hid`
+  and connect the controller via Bluetooth or USB.

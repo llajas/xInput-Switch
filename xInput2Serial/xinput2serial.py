@@ -37,10 +37,14 @@ try:
     import mouse     # pip install mouse
 except ImportError:
     mouse = None
+# optional HIDAPI support -- try both common package names
 try:
-    import hid       # optional HIDAPI support
-except ImportError:  # pragma: no cover - optional dependency
-    hid = None
+    import hid  # "hid" (pyhidapi)
+except ImportError:
+    try:
+        import hidapi as hid
+    except ImportError:  # pragma: no cover - optional dependency
+        hid = None
 
 from ctypes import wintypes
 user32 = ctypes.windll.user32
@@ -85,7 +89,7 @@ class PadDS:
 
     def __init__(self, path: str | None = None):
         if hid is None:
-            raise RuntimeError("hidapi library required for DualShock mode")
+            raise RuntimeError("hidapi library required (pip install hid) for DualShock mode")
         if path is None:
             path = self._find()
             if path is None:
@@ -183,7 +187,7 @@ class HIDUART:
 
     def __init__(self, path: str):
         if hid is None:
-            raise RuntimeError("hidapi library required for HID mode")
+            raise RuntimeError("hidapi library required (pip install hid) for HID mode")
         self.h = hid.Device(path=path)
         self.h.set_nonblocking(True)
 
@@ -368,7 +372,7 @@ if __name__=="__main__":
                 if args.debug:
                     print(f"DualShock 4 init failed: {e}")
         elif not pad.ok() and hid is None and args.debug:
-            print("hid library not installed; DualShock 4 unavailable")
+            print("hidapi not installed; run 'pip install hid' for DualShock 4 support")
     if not pad.ok():
         sys.exit("Controller not connected")
 
@@ -401,7 +405,7 @@ if __name__=="__main__":
                             if args.debug:
                                 print(f"DualShock 4 init failed: {e}")
                     elif not pad.ok() and hid is None and args.debug:
-                        print("hid library not installed; DualShock 4 unavailable")
+                        print("hidapi not installed; run 'pip install hid' for DualShock 4 support")
                 continue
             if not ((not args.window) or focus_ok(args.window)):
                 if was_focused and args.debug: print("Window inactive – neutral")
