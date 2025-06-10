@@ -256,7 +256,7 @@ if __name__=="__main__":
         ports=list_ports(); port=ports[0] if ports else None
     if not port: sys.exit("No serial port selected")
 
-    pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else (0 if args.auto else None))
+    pad = PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else 0)
     if not pad.ok(): sys.exit("Controller not connected")
 
     ser = HIDUART(port[4:]) if port.startswith('hid:') else UART(port)
