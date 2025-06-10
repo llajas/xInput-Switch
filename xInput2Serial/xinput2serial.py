@@ -26,6 +26,11 @@ import argparse, ctypes, sys, time
 import serial, serial.tools.list_ports
 
 try:
+    import hid  # optional HIDAPI support
+except ImportError:  # pragma: no cover - optional dependency
+    hid = None
+
+try:
     import win32gui
 except ImportError:
     win32gui = None
@@ -69,6 +74,41 @@ class UART:
                     self.h.write(bytes([CMD2]))
                     return self.h.read(1)[0] == RSP_OK
         return False
+    def close(self):
+        self.h.close()
+
+class HIDUART:
+    """Serial protocol over HID using hidapi."""
+
+    def __init__(self, path: str):
+        if hid is None:
+            raise RuntimeError("hidapi library required for HID mode")
+        self.h = hid.Device(path=path)
+        self.h.set_nonblocking(True)
+
+    def write(self, p: bytes):
+        self.h.write(p + bytes([crc8(p)]))
+
+    def _read_byte(self, timeout=0.05):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            data = self.h.read(1)
+            if data:
+                return data[0]
+        return None
+
+    def sync(self) -> bool:
+        self.h.write(bytes([CMD_ST]) * 9)
+        t0 = time.time()
+        while time.time() - t0 < 1:
+            b = self._read_byte()
+            if b == RSP_ST:
+                self.h.write(bytes([CMD1]))
+                if self._read_byte() == RSP1:
+                    self.h.write(bytes([CMD2]))
+                    return self._read_byte() == RSP_OK
+        return False
+
     def close(self):
         self.h.close()
 
@@ -175,7 +215,19 @@ def build_packet(p):
     hx,hy=p.hat()
     return Packet(b,HAT_MAP[(hx,hy)],p.axis(0),p.axis(1),p.axis(3),p.axis(4)), b
 
-list_ports=lambda:[p.device for p in serial.tools.list_ports.comports()]
+def list_ports():
+    """Return available serial or HIDAPI ports."""
+    ports = [p.device for p in serial.tools.list_ports.comports()]
+    if hid is not None:
+        try:
+            for d in hid.enumerate():
+                path = d.get('path')
+                if isinstance(path, bytes):
+                    path = path.decode(errors='ignore')
+                ports.append(f"hid:{path}")
+        except Exception:
+            pass
+    return ports
 def focus_ok(title:str):
     if win32gui is None: return True
     return title.lower() in win32gui.GetWindowText(win32gui.GetForegroundWindow()).lower()
@@ -207,11 +259,12 @@ if __name__=="__main__":
     pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else (0 if args.auto else None))
     if not pad.ok(): sys.exit("Controller not connected")
 
-    ser=UART(port)
+    ser = HIDUART(port[4:]) if port.startswith('hid:') else UART(port)
     if not ser.sync(): sys.exit("MCU sync failed")
     if args.debug:
         src="keyboard" if args.keyboard else f"controller slot {pad.slot}"
-        print(f"Using {src} → COM {port} @ {BAUD_DEF} baud")
+        transport = "HID" if port.startswith('hid:') else "COM"
+        print(f"Using {src} → {transport} {port} @ {BAUD_DEF} baud")
 
     neutral=Packet(0,8,0,0,0,0)
     was_focused=True
