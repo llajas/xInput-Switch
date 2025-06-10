@@ -105,8 +105,9 @@ class PadDS:
         for d in hid.enumerate():
             if d.get("vendor_id") != cls.DS4_VID:
                 continue
-            # Prefer the gamepad interface if available
-            if d.get("usage") not in (4, 5):
+            if d.get("usage_page") != 1:
+                continue
+            if d.get("usage") not in (4, 5):  # joystick or gamepad interface
                 continue
             path = d.get("path")
             if isinstance(path, bytes):

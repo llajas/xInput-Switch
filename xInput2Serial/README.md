@@ -67,3 +67,5 @@ The CH340 handles level shifting; no crossover is needed.
   and connect the controller via Bluetooth or USB. If HID devices are still not
   listed, ensure Python can load the `hid` extension—architecture mismatches can
   prevent the module from loading.
+  On Windows, you may also need the accompanying `hidapi.dll` from the HIDAPI
+  runtime.
