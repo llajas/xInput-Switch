@@ -26,11 +26,6 @@ import argparse, ctypes, sys, time
 import serial, serial.tools.list_ports
 
 try:
-    import hid  # optional HIDAPI support
-except ImportError:  # pragma: no cover - optional dependency
-    hid = None
-
-try:
     import win32gui
 except ImportError:
     win32gui = None
@@ -42,6 +37,10 @@ try:
     import mouse     # pip install mouse
 except ImportError:
     mouse = None
+try:
+    import hid       # optional HIDAPI support
+except ImportError:  # pragma: no cover - optional dependency
+    hid = None
 
 from ctypes import wintypes
 user32 = ctypes.windll.user32
@@ -74,41 +73,6 @@ class UART:
                     self.h.write(bytes([CMD2]))
                     return self.h.read(1)[0] == RSP_OK
         return False
-    def close(self):
-        self.h.close()
-
-class HIDUART:
-    """Serial protocol over HID using hidapi."""
-
-    def __init__(self, path: str):
-        if hid is None:
-            raise RuntimeError("hidapi library required for HID mode")
-        self.h = hid.Device(path=path)
-        self.h.set_nonblocking(True)
-
-    def write(self, p: bytes):
-        self.h.write(p + bytes([crc8(p)]))
-
-    def _read_byte(self, timeout=0.05):
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            data = self.h.read(1)
-            if data:
-                return data[0]
-        return None
-
-    def sync(self) -> bool:
-        self.h.write(bytes([CMD_ST]) * 9)
-        t0 = time.time()
-        while time.time() - t0 < 1:
-            b = self._read_byte()
-            if b == RSP_ST:
-                self.h.write(bytes([CMD1]))
-                if self._read_byte() == RSP1:
-                    self.h.write(bytes([CMD2]))
-                    return self._read_byte() == RSP_OK
-        return False
-
     def close(self):
         self.h.close()
 
@@ -207,6 +171,41 @@ class PadDS:
 
     def raw(self) -> int:
         return (self.buf[5] << 16) | (self.buf[6] << 8) | self.buf[7]
+
+class HIDUART:
+    """Serial protocol over HID using hidapi."""
+
+    def __init__(self, path: str):
+        if hid is None:
+            raise RuntimeError("hidapi library required for HID mode")
+        self.h = hid.Device(path=path)
+        self.h.set_nonblocking(True)
+
+    def write(self, p: bytes):
+        self.h.write(p + bytes([crc8(p)]))
+
+    def _read_byte(self, timeout=0.05):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            data = self.h.read(1)
+            if data:
+                return data[0]
+        return None
+
+    def sync(self) -> bool:
+        self.h.write(bytes([CMD_ST]) * 9)
+        t0 = time.time()
+        while time.time() - t0 < 1:
+            b = self._read_byte()
+            if b == RSP_ST:
+                self.h.write(bytes([CMD1]))
+                if self._read_byte() == RSP1:
+                    self.h.write(bytes([CMD2]))
+                    return self._read_byte() == RSP_OK
+        return False
+
+    def close(self):
+        self.h.close()
 
 class Packet:
     def __init__(self, b, d, lx, ly, rx, ry):
@@ -311,10 +310,10 @@ def build_packet(p):
     hx,hy=p.hat()
     return Packet(b,HAT_MAP[(hx,hy)],p.axis(0),p.axis(1),p.axis(3),p.axis(4)), b
 
-def list_ports():
-    """Return available serial or HIDAPI ports."""
+def list_ports() -> list[str]:
+    """Return available serial ports; fall back to HID if none found."""
     ports = [p.device for p in serial.tools.list_ports.comports()]
-    if hid is not None:
+    if not ports and hid is not None:
         try:
             for d in hid.enumerate():
                 path = d.get('path')
@@ -331,7 +330,6 @@ def focus_ok(title:str):
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("--keyboard",action="store_true")
-    ap.add_argument("--dualshock", action="store_true", help="Use DualShock 4 via HID")
     ap.add_argument("--port")
     ap.add_argument("--controller",type=int)
     ap.add_argument("--window")
@@ -347,24 +345,28 @@ if __name__=="__main__":
         center=(cx,cy)
 
     port=args.port
-    if not port and not args.auto:
-        ports=list_ports(); port=ports[0] if ports else None
-    if not port and args.auto:
-        ports=list_ports(); port=ports[0] if ports else None
+    if not port:
+        ports = list_ports(); port = ports[0] if ports else None
     if not port: sys.exit("No serial port selected")
 
     if args.keyboard:
         pad = PadK(center)
-    elif args.dualshock:
-        pad = PadDS()
     else:
         pad = PadX(args.controller if args.controller is not None else 0)
-    if not pad.ok(): sys.exit("Controller not connected")
+        if not pad.ok() and hid is not None:
+            try:
+                pad = PadDS()
+                if args.debug:
+                    print("Falling back to DualShock 4")
+            except Exception:
+                pass
+    if not pad.ok():
+        sys.exit("Controller not connected")
 
     ser = HIDUART(port[4:]) if port.startswith('hid:') else UART(port)
     if not ser.sync(): sys.exit("MCU sync failed")
     if args.debug:
-        src="keyboard" if args.keyboard else f"controller slot {pad.slot}"
+        src = "keyboard" if args.keyboard else f"controller slot {pad.slot}"
         transport = "HID" if port.startswith('hid:') else "COM"
         print(f"Using {src} → {transport} {port} @ {BAUD_DEF} baud")
 
@@ -379,10 +381,13 @@ if __name__=="__main__":
                 time.sleep(RETRY)
                 if args.keyboard:
                     pad = PadK(center)
-                elif args.dualshock:
-                    pad = PadDS()
                 else:
                     pad = PadX(args.controller if args.controller is not None else 0)
+                    if not pad.ok() and hid is not None:
+                        try:
+                            pad = PadDS()
+                        except Exception:
+                            pass
                 continue
             if not ((not args.window) or focus_ok(args.window)):
                 if was_focused and args.debug: print("Window inactive – neutral")

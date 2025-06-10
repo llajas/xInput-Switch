@@ -9,9 +9,10 @@ This Python-only implementation is headless and uses the native XInput API on Wi
 - **Persistent 100 Hz streaming:** Sends controller or neutral packets continuously 
   to prevent the firmware failsafe from closing the input when no user commands are issued.  
 - **Window title binding:** Only streams packets when a specified window is active (requires `pywin32`).  
-- **Auto-detection:** Finds and connects to the first available COM or HIDAPI port and Xbox controller.
-- **DualShock 4 support:** Read inputs from a connected DS4 via HIDAPI.
-- **Manual selection:** Specify COM or HID port and controller slot on the command line.
+- **Auto-detection:** Finds and connects to the first available COM port and Xbox controller.
+- **HID fallback:** If no COM ports are found, HID-based serial devices are tried automatically.
+- **DualShock 4 support:** Falls back to a connected DS4 when no XInput pad is detected.
+- **Manual selection:** Prompt for COM port and controller slot unless `--auto` is specified.
 - **Native XInput backend:** Uses `ctypes` to call the Windows XInput API directly—no SDL or other frameworks required.  
 - **Failsafe support:** If the controller disconnects, or the serial link breaks, the Switch will pause or return to the HOME menu per built-in firmware logic.
 
@@ -19,7 +20,7 @@ This Python-only implementation is headless and uses the native XInput API on Wi
 
 - Python 3.10+
   - `pyserial`
-  - `hid` (required for HIDAPI serial or DualShock 4 support)
+  - `hid` (for HID serial and DualShock 4 support)
   - `pywin32` (only if using `--window`)
 - Windows 10 or later
 
@@ -32,19 +33,18 @@ python xinput2serial.py [options]
 
 ##### Options
 
-- `--auto`                 Auto-select first COM or HID port and controller
-- `--port COMx|hid:path`   Specify a COM port or HID path
-- `--baud N`               Set baud rate (default: 1_000_000)
-- `--controller N`         Specify XInput controller slot (0–3, default: 0)
-- `--window "TITLE"`       Only stream while window is active (requires `pywin32`)
-- `--debug`                Print detected devices, raw input values, and every transmitted packet
-- `--dualshock`            Use a connected DualShock 4 controller via HIDAPI
+- `--auto`                 Auto-select first COM port and controller  
+- `--port COMx`            Specify a COM port  
+- `--baud N`               Set baud rate (default: 1_000_000)  
+- `--controller N`         Specify XInput controller slot (0–3)  
+- `--window "TITLE"`       Only stream while window is active (requires `pywin32`)  
+- `--debug`                Print detected devices, raw input values, and every transmitted packet  
 
 ##### Examples
 
 ```bash
-# Auto-detect serial port with a DualShock 4
-python xinput2serial.py --dualshock --auto --debug
+python xinput2serial.py --auto --window "OBS (Preview)" --debug
+# Works with an Xbox controller or a DualShock 4 if one is connected
 ```
 
 #### Wiring
