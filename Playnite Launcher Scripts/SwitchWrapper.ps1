@@ -12,82 +12,137 @@ param(
     [string]$BaseDir         = "C:\Nintendo Automation\xInput-Switch",
     [string]$ProjectorWS     = (Join-Path $BaseDir "Playnite Launcher Scripts\start_obs_fullscreen.py"),
     [string]$XInputScript    = (Join-Path $BaseDir "xInput2Serial\xinput2serial.py"),
-    [string]$ProjectorTitle  = "Windowed Projector (Source) - Scene"
+    [string]$ProjectorTitle  = "Windowed Projector (Source) - Scene",
+    [int]$ProjectorAppearTimeoutSeconds = 25,
+    [int]$XInputStartupGraceSeconds = 3
 )
 
 $ObsExe    = Join-Path $ObsDir "obs64.exe"
 $ObsWorkDir = $ObsDir
+$startedObsByWrapper = $false
+$obsProc = $null
+$xiProc = $null
 
 function Log-Message($msg) {
-    Write-Host "[Wrapper] $msg"
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[Wrapper][$timestamp] $msg"
 }
 
-# 1. Start OBS
-if (!(Get-Process -Name obs64 -ErrorAction SilentlyContinue)) {
-    Log-Message "Starting OBS with disable-shutdown-check..."
-    try {
-        # Launch OBS with shutdown check disabled to avoid Safe Mode prompt
-        Start-Process -FilePath $ObsExe -WorkingDirectory $ObsWorkDir -ArgumentList "--disable-shutdown-check" -PassThru | Out-Null
-        Start-Sleep -Seconds 3
-        Log-Message "OBS started."
-    } catch {
-        Log-Message "Failed to launch OBS with disable-shutdown-check. Exiting."
-        exit 1
+function Get-ProjectorProcess([string]$title) {
+    Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowTitle -like "*$title*"
     }
-} else {
-    Log-Message "OBS is already running."
 }
 
-# 2. Start projector via WS script via WS script
-Log-Message "Starting projector..."
-Start-Process -FilePath $PythonExe -ArgumentList "`"$ProjectorWS`""
-Start-Sleep -Seconds 2
+function Stop-ProcessSafe($proc, [string]$name) {
+    if ($null -eq $proc) {
+        return
+    }
 
-# 3. Start xinput2serial script
-Log-Message "Launching xinput2serial bound to '$ProjectorTitle'..."
-$xiProc = Start-Process -FilePath $PythonExe -ArgumentList "`"$XInputScript`" --auto --window `"$ProjectorTitle`"" -PassThru
-
-# 4. Robustly monitor window using PowerShell native methods
-Log-Message "Waiting for projector window to appear..."
-$timeout = 20
-while ($timeout -gt 0 -and !(Get-Process | Where-Object { $_.MainWindowTitle -like "*$ProjectorTitle*" })) {
-    Start-Sleep -Seconds 1
-    $timeout--
+    $running = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+    if ($running) {
+        Log-Message "Stopping $name (PID $($proc.Id))..."
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    }
 }
 
-if ($timeout -eq 0) {
-    Log-Message "Projector window never appeared. Cleaning up."
-    # 5. Cleanup xinput2serial
-    Log-Message "Stopping xinput2serial..."
-    if (!$xiProc.HasExited) { Stop-Process -Id $xiProc.Id -Force }
+try {
+    # 1. Start OBS
+    if (!(Get-Process -Name obs64 -ErrorAction SilentlyContinue)) {
+        Log-Message "Starting OBS with disable-shutdown-check..."
+        try {
+            $obsProc = Start-Process -FilePath $ObsExe -WorkingDirectory $ObsWorkDir -ArgumentList "--disable-shutdown-check" -PassThru
+            $startedObsByWrapper = $true
+        }
+        catch {
+            throw "Failed to launch OBS ($ObsExe): $($_.Exception.Message)"
+        }
+
+        Start-Sleep -Seconds 3
+        Log-Message "OBS started (PID $($obsProc.Id))."
+    }
+    else {
+        Log-Message "OBS is already running; wrapper will not shut it down on exit."
+    }
+
+    # 2. Start projector helper and require success
+    Log-Message "Starting projector helper..."
+    $projectorProc = Start-Process -FilePath $PythonExe -ArgumentList "`"$ProjectorWS`"" -PassThru -Wait
+    if ($projectorProc.ExitCode -ne 0) {
+        throw "Projector helper exited with code $($projectorProc.ExitCode)."
+    }
+
+    # 3. Wait for projector window to appear
+    Log-Message "Waiting for projector window '$ProjectorTitle' to appear..."
+    $windowDeadline = (Get-Date).AddSeconds($ProjectorAppearTimeoutSeconds)
+    while ((Get-Date) -lt $windowDeadline -and !(Get-ProjectorProcess -title $ProjectorTitle)) {
+        Start-Sleep -Milliseconds 500
+    }
+
+    if (!(Get-ProjectorProcess -title $ProjectorTitle)) {
+        throw "Projector window '$ProjectorTitle' did not appear within $ProjectorAppearTimeoutSeconds seconds."
+    }
+    Log-Message "Projector window detected."
+
+    # 4. Start xinput2serial and verify it stays alive past startup grace
+    Log-Message "Launching xinput2serial bound to '$ProjectorTitle'..."
+    $xiProc = Start-Process -FilePath $PythonExe -ArgumentList "`"$XInputScript`" --auto --window `"$ProjectorTitle`"" -PassThru
+    Start-Sleep -Seconds $XInputStartupGraceSeconds
+
+    if ($xiProc.HasExited) {
+        throw "xinput2serial exited early with code $($xiProc.ExitCode)."
+    }
+
+    Log-Message "xinput2serial is running (PID $($xiProc.Id)). Monitoring projector lifecycle..."
+    while ($true) {
+        if ($xiProc.HasExited) {
+            throw "xinput2serial exited during monitoring with code $($xiProc.ExitCode)."
+        }
+
+        if (!(Get-ProjectorProcess -title $ProjectorTitle)) {
+            Log-Message "Projector window closed. Ending wrapper session."
+            break
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    exit 0
+}
+catch {
+    Log-Message "ERROR: $($_.Exception.Message)"
     exit 1
 }
+finally {
+    # 5. Cleanup xinput2serial
+    Stop-ProcessSafe -proc $xiProc -name "xinput2serial"
 
-Log-Message "Projector window detected. Monitoring for closure..."
-while (Get-Process | Where-Object { $_.MainWindowTitle -like "*$ProjectorTitle*" }) {
-    Start-Sleep -Seconds 1
-}
-
-# 5. Cleanup xinput2serial
-Log-Message "Projector closed. Stopping xinput2serial..."
-if (!$xiProc.HasExited) { Stop-Process -Id $xiProc.Id -Force }
-
-# Gracefully close OBS
-Log-Message "Attempting graceful shutdown of OBS..."
-$obsProc = Get-Process -Name obs64 -ErrorAction SilentlyContinue
-if ($obsProc) {
-    $obsProc.CloseMainWindow() | Out-Null
-    Start-Sleep -Seconds 5
-    # Force close if still running after grace period
-    if (!$obsProc.HasExited) {
-        Log-Message "Forcing OBS shutdown..."
-        $obsProc | Stop-Process -Force
-    } else {
-        Log-Message "OBS exited gracefully."
+    # Gracefully close OBS only if wrapper started it
+    if ($startedObsByWrapper) {
+        $ownedObs = $null
+        if ($obsProc -and !$obsProc.HasExited) {
+            $ownedObs = Get-Process -Id $obsProc.Id -ErrorAction SilentlyContinue
+        }
+        if ($ownedObs) {
+            Log-Message "Attempting graceful shutdown of OBS (PID $($ownedObs.Id))..."
+            $ownedObs.CloseMainWindow() | Out-Null
+            Start-Sleep -Seconds 5
+            $ownedObs = Get-Process -Id $ownedObs.Id -ErrorAction SilentlyContinue
+            if ($ownedObs) {
+                Log-Message "Forcing OBS shutdown..."
+                Stop-Process -Id $ownedObs.Id -Force -ErrorAction SilentlyContinue
+            }
+            else {
+                Log-Message "OBS exited gracefully."
+            }
+        }
+        else {
+            Log-Message "OBS already exited."
+        }
     }
-} else {
-    Log-Message "OBS was not running."
-}
+    else {
+        Log-Message "Leaving pre-existing OBS process running."
+    }
 
-Log-Message "OBS cleanup completed."
-exit 0
+    Log-Message "Wrapper cleanup completed."
+}
