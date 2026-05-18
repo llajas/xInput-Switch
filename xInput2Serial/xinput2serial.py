@@ -23,6 +23,8 @@ XInput-to-serial bridge  –  HOME = BACK + START combo
 """
 
 import argparse, ctypes, sys, time
+from datetime import datetime
+from pathlib import Path
 import serial, serial.tools.list_ports
 
 try:
@@ -55,20 +57,57 @@ def crc8(data: bytes) -> int:
     return c
 
 class UART:
-    def __init__(self, port: str):
-        self.h = serial.Serial(port, baudrate=BAUD_DEF, timeout=0.05)
+    def __init__(self, port: str, baud: int):
+        self.h = serial.Serial(port, baudrate=baud, timeout=0.05)
     def write(self, p: bytes):
         self.h.write(p + bytes([crc8(p)]))
-    def sync(self) -> bool:
-        self.h.write(bytes([CMD_ST]) * 9)
-        t0 = time.time()
-        while time.time() - t0 < 1:
-            if self.h.in_waiting and self.h.read(1)[0] == RSP_ST:
-                self.h.write(bytes([CMD1]))
-                if self.h.read(1)[0] == RSP1:
-                    self.h.write(bytes([CMD2]))
-                    return self.h.read(1)[0] == RSP_OK
+    def read_until_quiet(self, quiet_seconds=0.05, max_seconds=1.0):
+        data = bytearray()
+        deadline = time.time() + max_seconds
+        quiet_deadline = time.time() + quiet_seconds
+        while time.time() < deadline:
+            b = self.h.read(1)
+            if b:
+                data.extend(b)
+                quiet_deadline = time.time() + quiet_seconds
+            elif time.time() >= quiet_deadline:
+                break
+        return bytes(data)
+    def read_expected(self, expected: int, log=None, label="response", timeout=1.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            b = self.h.read(1)
+            if not b:
+                continue
+            if b[0] == expected:
+                return True
+            if log:
+                log(f"MCU sync: ignoring byte 0x{b[0]:02X} while waiting for {label} 0x{expected:02X}.")
+        if log:
+            log(f"MCU sync: timed out waiting for {label} 0x{expected:02X}.")
         return False
+    def sync(self, log=None) -> bool:
+        self.h.reset_input_buffer()
+        self.h.write(bytes([CMD_ST]) * 9)
+        start_responses = self.read_until_quiet()
+        if log:
+            if start_responses:
+                log(f"MCU sync: received start response bytes {start_responses.hex(' ')}.")
+            else:
+                log("MCU sync: received no start response bytes.")
+        if RSP_ST not in start_responses:
+            return False
+
+        self.h.write(bytes([CMD1]))
+        if not self.read_expected(RSP1, log, "command 1 response"):
+            return False
+        if log:
+            log("MCU sync: received command 1 response.")
+
+        self.h.write(bytes([CMD2]))
+        if not self.read_expected(RSP_OK, log, "final OK"):
+            return False
+        return True
     def close(self):
         self.h.close()
 
@@ -163,8 +202,9 @@ def build_packet(p):
     b=0
     for i,m in BTN_MAP.items():
         if p.btn(i): b|=m
-    if keyboard and keyboard.is_pressed('h'): b|=1<<12
-    if keyboard and keyboard.is_pressed('c'): b|=1<<13
+    if isinstance(p,PadK):
+        if keyboard and keyboard.is_pressed('h'): b|=1<<12
+        if keyboard and keyboard.is_pressed('c'): b|=1<<13
     if isinstance(p,PadX) and p.btn(6) and p.btn(7): b|=1<<12
     if isinstance(p,PadX):
         if p.axis(2)>0.5: b|=1<<6
@@ -175,43 +215,131 @@ def build_packet(p):
     hx,hy=p.hat()
     return Packet(b,HAT_MAP[(hx,hy)],p.axis(0),p.axis(1),p.axis(3),p.axis(4)), b
 
+def describe_ports():
+    return [
+        f"{p.device} | {p.description} | {p.hwid}"
+        for p in serial.tools.list_ports.comports()
+    ]
+
 list_ports=lambda:[p.device for p in serial.tools.list_ports.comports()]
 def focus_ok(title:str):
     if win32gui is None: return True
     return title.lower() in win32gui.GetWindowText(win32gui.GetForegroundWindow()).lower()
 
+def make_logger(path):
+    if not path:
+        return lambda _msg: None
+    log_path = Path(path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    def _log(msg):
+        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
+        print(line, flush=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    return _log
+
+def detect_controller_slot(log):
+    if _x is None:
+        log("No XInput DLL could be loaded.")
+        return None
+    for slot in range(4):
+        pad = PadX(slot)
+        if pad.ok():
+            log(f"Detected XInput controller in slot {slot}.")
+            return slot
+        log(f"No XInput controller in slot {slot}.")
+    return None
+
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("--keyboard",action="store_true")
     ap.add_argument("--port")
+    ap.add_argument("--baud",type=int,default=BAUD_DEF)
     ap.add_argument("--controller",type=int)
     ap.add_argument("--window")
     ap.add_argument("--auto",action="store_true")
     ap.add_argument("--debug",action="store_true")
+    ap.add_argument("--log-file")
+    ap.add_argument("--startup-debug",action="store_true")
+    ap.add_argument("--diagnose",action="store_true",help="Print COM and XInput detection details, then exit.")
+    ap.add_argument("--sync-attempts",type=int,default=3)
     args=ap.parse_args()
+    log = make_logger(args.log_file)
+
+    if args.startup_debug or args.diagnose:
+        log("xinput2serial starting.")
+        log("Serial ports:")
+        port_infos = describe_ports()
+        for port_info in port_infos:
+            log(f"  {port_info}")
+        if not port_infos:
+            log("  none")
+
+    if args.diagnose:
+        detect_controller_slot(log)
+        log("Diagnostics complete.")
+        sys.exit(0)
 
     center=None
     if args.keyboard and args.window and win32gui:
         hwnd=win32gui.FindWindow(None,args.window)
-        l,t,r,b=win32gui.GetWindowRect(hwnd)
-        cx,cy=(l+r)//2,(t+b)//2
-        center=(cx,cy)
+        if hwnd:
+            l,t,r,b=win32gui.GetWindowRect(hwnd)
+            cx,cy=(l+r)//2,(t+b)//2
+            center=(cx,cy)
+            if args.startup_debug:
+                log(f"Keyboard/mouse center set to {center}.")
+        elif args.startup_debug:
+            log(f"Window not found for keyboard/mouse centering: {args.window}")
 
     port=args.port
     if not port and not args.auto:
         ports=list_ports(); port=ports[0] if ports else None
     if not port and args.auto:
         ports=list_ports(); port=ports[0] if ports else None
-    if not port: sys.exit("No serial port selected")
+    if not port:
+        log("No serial port selected.")
+        sys.exit("No serial port selected")
+    if args.startup_debug:
+        log(f"Using serial port {port} at {args.baud} baud.")
 
-    pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else (0 if args.auto else None))
-    if not pad.ok(): sys.exit("Controller not connected")
+    if args.keyboard:
+        pad=PadK(center)
+    else:
+        controller_slot = args.controller
+        if controller_slot is None and args.auto:
+            controller_slot = detect_controller_slot(log)
+        if controller_slot is None:
+            log("No XInput controller selected or detected.")
+            sys.exit("Controller not connected")
+        pad=PadX(controller_slot)
+    if not pad.ok():
+        log("Controller not connected.")
+        sys.exit("Controller not connected")
+    if args.startup_debug and isinstance(pad, PadX):
+        log(f"Using XInput controller slot {pad.slot}.")
 
-    ser=UART(port)
-    if not ser.sync(): sys.exit("MCU sync failed")
+    try:
+        ser=UART(port,args.baud)
+    except Exception as exc:
+        log(f"Serial open failed on {port}: {exc}")
+        raise
+    synced = False
+    for attempt in range(1, args.sync_attempts + 1):
+        if args.startup_debug:
+            log(f"Attempting MCU sync ({attempt}/{args.sync_attempts}).")
+        if ser.sync(log if args.startup_debug else None):
+            synced = True
+            break
+        time.sleep(0.25)
+    if not synced:
+        log("MCU sync failed.")
+        sys.exit("MCU sync failed")
+    if args.startup_debug:
+        log("MCU sync succeeded.")
     if args.debug:
         src="keyboard" if args.keyboard else f"controller slot {pad.slot}"
-        print(f"Using {src} → COM {port} @ {BAUD_DEF} baud")
+        print(f"Using {src} → COM {port} @ {args.baud} baud")
 
     neutral=Packet(0,8,0,0,0,0)
     was_focused=True
