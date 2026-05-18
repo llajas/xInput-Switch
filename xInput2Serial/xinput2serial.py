@@ -22,7 +22,7 @@ XInput-to-serial bridge  –  HOME = BACK + START combo
     - Mouse movement → Right Stick (continuous, recenters each frame)
 """
 
-import argparse, ctypes, os, sys, time, warnings
+import argparse, ctypes, json, os, socket, sys, threading, time, warnings
 from datetime import datetime
 from pathlib import Path
 import serial, serial.tools.list_ports
@@ -257,6 +257,196 @@ class PadSDL:
                 bits |= 1 << i
         return bits
 
+# Local socket backend for external input adapters such as Discord bots.
+SOCKET_BUTTONS = {
+    "b": 0,
+    "a": 1,
+    "y": 2,
+    "x": 3,
+    "l": 4,
+    "r": 5,
+    "minus": 6,
+    "select": 6,
+    "back": 6,
+    "plus": 7,
+    "start": 7,
+    "lclick": 9,
+    "ls": 9,
+    "rclick": 10,
+    "rs": 10,
+}
+SOCKET_EXTRA_BITS = {
+    "home": 1 << 12,
+    "capture": 1 << 13,
+    "screenshot": 1 << 13,
+}
+SOCKET_TRIGGER_AXES = {
+    "zl": 2,
+    "lt": 2,
+    "zr": 5,
+    "rt": 5,
+}
+SOCKET_DPAD = {
+    "up": (0, 1),
+    "u": (0, 1),
+    "down": (0, -1),
+    "d": (0, -1),
+    "right": (1, 0),
+    "r": (1, 0),
+    "left": (-1, 0),
+    "l": (-1, 0),
+    "up-right": (1, 1),
+    "upright": (1, 1),
+    "ur": (1, 1),
+    "up-left": (-1, 1),
+    "upleft": (-1, 1),
+    "ul": (-1, 1),
+    "down-right": (1, -1),
+    "downright": (1, -1),
+    "dr": (1, -1),
+    "down-left": (-1, -1),
+    "downleft": (-1, -1),
+    "dl": (-1, -1),
+}
+
+class PadSocket:
+    def __init__(self, host, port, log=None):
+        self.host = host
+        self.port = port
+        self.log = log or (lambda _msg: None)
+        self.lock = threading.Lock()
+        self.button_until = {}
+        self.extra_until = {}
+        self.axis_until = {}
+        self.hat_until = 0.0
+        self.hat_value = (0, 0)
+        self.running = True
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
+        self.log(f"Socket input listening on {host}:{port}.")
+
+    def label(self): return f"socket input {self.host}:{self.port}"
+    def ok(self): return self.running
+    def raw(self): return 0
+
+    def btn(self, i):
+        self._expire()
+        return self.button_until.get(i, 0.0) > time.time()
+
+    def extra_buttons(self):
+        self._expire()
+        now = time.time()
+        bits = 0
+        for bit, until in self.extra_until.items():
+            if until > now:
+                bits |= bit
+        return bits
+
+    def axis(self, i):
+        self._expire()
+        value, until = self.axis_until.get(i, (0.0, 0.0))
+        return value if until > time.time() else 0.0
+
+    def hat(self):
+        self._expire()
+        return self.hat_value if self.hat_until > time.time() else (0, 0)
+
+    def _expire(self):
+        now = time.time()
+        with self.lock:
+            self.button_until = {k: v for k, v in self.button_until.items() if v > now}
+            self.extra_until = {k: v for k, v in self.extra_until.items() if v > now}
+            self.axis_until = {k: v for k, v in self.axis_until.items() if v[1] > now}
+            if self.hat_until <= now:
+                self.hat_value = (0, 0)
+
+    def _serve(self):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                server.bind((self.host, self.port))
+                server.listen()
+                while self.running:
+                    conn, addr = server.accept()
+                    threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()
+        except OSError as exc:
+            self.running = False
+            self.log(f"Socket input stopped: {exc}")
+
+    def _handle_client(self, conn, addr):
+        with conn:
+            buf = b""
+            while True:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    self._handle_line(line.decode("utf-8", errors="replace").strip(), addr)
+
+    def _handle_line(self, line, addr):
+        if not line:
+            return
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            event = {"command": line}
+        self.apply_event(event)
+
+    def apply_event(self, event):
+        duration = max(0.01, min(float(event.get("duration", 0.2)), 5.0))
+        until = time.time() + duration
+
+        commands = []
+        for key in ("command", "button", "dpad"):
+            value = event.get(key)
+            if value:
+                commands.append(str(value))
+        for key in ("buttons", "commands"):
+            values = event.get(key) or []
+            if isinstance(values, str):
+                values = [values]
+            commands.extend(str(v) for v in values)
+
+        with self.lock:
+            for command in commands:
+                self._apply_command(command, until)
+
+            left = event.get("left")
+            right = event.get("right")
+            if event.get("stick") and ("x" in event or "y" in event):
+                stick = str(event.get("stick")).lower()
+                target = {"x": event.get("x", 0), "y": event.get("y", 0)}
+                if stick in ("left", "l"):
+                    left = target
+                elif stick in ("right", "r"):
+                    right = target
+            if isinstance(left, dict):
+                self.axis_until[0] = (self._clamp_axis(left.get("x", 0)), until)
+                self.axis_until[1] = (self._clamp_axis(left.get("y", 0)), until)
+            if isinstance(right, dict):
+                self.axis_until[3] = (self._clamp_axis(right.get("x", 0)), until)
+                self.axis_until[4] = (self._clamp_axis(right.get("y", 0)), until)
+
+    def _apply_command(self, command, until):
+        name = command.strip().lower().replace(" ", "-")
+        if name in SOCKET_DPAD:
+            self.hat_value = SOCKET_DPAD[name]
+            self.hat_until = until
+        elif name in SOCKET_BUTTONS:
+            self.button_until[SOCKET_BUTTONS[name]] = until
+        elif name in SOCKET_EXTRA_BITS:
+            self.extra_until[SOCKET_EXTRA_BITS[name]] = until
+        elif name in SOCKET_TRIGGER_AXES:
+            self.axis_until[SOCKET_TRIGGER_AXES[name]] = (1.0, until)
+
+    def _clamp_axis(self, value):
+        try:
+            return max(-1.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return 0.0
+
 # ───────── Keyboard+Mouse backend (FPS layout with recenter) ─────────
 KEY_MAPPING = {0:'ctrl',1:'space',2:'r',3:'e',4:'q',5:'f',6:'tab',7:'enter',9:'v',10:'x'}
 
@@ -306,6 +496,8 @@ def build_packet(p):
     if isinstance(p,PadK):
         if keyboard and keyboard.is_pressed('h'): b|=1<<12
         if keyboard and keyboard.is_pressed('c'): b|=1<<13
+    if hasattr(p, "extra_buttons"):
+        b |= p.extra_buttons()
     if isinstance(p,(PadX,PadSDL)) and ((p.btn(6) and p.btn(7)) or p.btn(8)): b|=1<<12
     if isinstance(p,(PadX,PadSDL)):
         if p.axis(2)>0.5: b|=1<<6
@@ -396,6 +588,9 @@ def create_controller(args, log):
     backend = args.backend
     selected = args.controller
 
+    if backend == "socket":
+        return PadSocket(args.socket_host, args.socket_port, log)
+
     if backend in ("xinput", "auto"):
         controller_slot = selected
         if controller_slot is None and args.auto:
@@ -431,7 +626,9 @@ if __name__=="__main__":
     ap.add_argument("--port")
     ap.add_argument("--baud",type=int,default=BAUD_DEF)
     ap.add_argument("--controller",type=int)
-    ap.add_argument("--backend",choices=("auto","xinput","pygame"),default="xinput")
+    ap.add_argument("--backend",choices=("auto","xinput","pygame","socket"),default="xinput")
+    ap.add_argument("--socket-host",default="127.0.0.1")
+    ap.add_argument("--socket-port",type=int,default=8765)
     ap.add_argument("--window")
     ap.add_argument("--auto",action="store_true")
     ap.add_argument("--debug",action="store_true")

@@ -31,10 +31,13 @@ python xinput2serial.py [options]
 ##### Options
 
 - `--auto`                 Auto-select first COM port and controller  
-- `--backend auto|xinput|pygame`
+- `--backend auto|xinput|pygame|socket`
                            Controller backend to use. `xinput` supports Xbox/XInput devices.
                            `pygame` supports SDL-recognized controllers such as DS4.
+                           `socket` listens for JSON commands from local adapters.
                            `auto` tries XInput first, then pygame/SDL.
+- `--socket-host HOST`     Host for the socket backend (default: `127.0.0.1`)
+- `--socket-port PORT`     Port for the socket backend (default: `8765`)
 - `--port COMx`            Specify a COM port  
 - `--baud N`               Set baud rate (default: 1_000_000)  
 - `--controller N`         Specify XInput controller slot (0–3)  
@@ -65,6 +68,20 @@ If you want the bridge to prefer XInput when available and fall back to DS4/SDL,
 
 ```powershell
 py -3 "C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py" --auto --backend auto --port COM3 --startup-debug --debug --log-file "C:\Nintendo Automation\xInput-Switch\Playnite Launcher Scripts\xinput2serial-auto-manual.log"
+```
+
+##### Discord / socket input manual test
+
+Start the bridge in socket mode:
+
+```powershell
+py -3 "C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py" --backend socket --port COM3 --startup-debug --log-file "C:\Nintendo Automation\xInput-Switch\Playnite Launcher Scripts\xinput2serial-discord.log"
+```
+
+Send one test command from another PowerShell window:
+
+```powershell
+py -3 -c "import json,socket; s=socket.create_connection(('127.0.0.1',8765)); s.sendall((json.dumps({'command':'a','duration':0.2})+'\n').encode()); s.close()"
 ```
 
 #### Wiring

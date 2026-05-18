@@ -29,6 +29,8 @@
 *.swp
 __pycache__/
 *.pyc
+.env
+*.pid
 
 # MacOS
 .DS_Store
