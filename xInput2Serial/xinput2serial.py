@@ -22,7 +22,7 @@ XInput-to-serial bridge  –  HOME = BACK + START combo
     - Mouse movement → Right Stick (continuous, recenters each frame)
 """
 
-import argparse, ctypes, sys, time
+import argparse, ctypes, os, sys, time, warnings
 from datetime import datetime
 from pathlib import Path
 import serial, serial.tools.list_ports
@@ -39,6 +39,14 @@ try:
     import mouse     # pip install mouse
 except ImportError:
     mouse = None
+try:
+    os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+    warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API.*")
+    import pygame
+    import pygame._sdl2.controller as sdl_controller
+except ImportError:
+    pygame = None
+    sdl_controller = None
 
 from ctypes import wintypes
 user32 = ctypes.windll.user32
@@ -146,6 +154,7 @@ BTN_MASKS = [0x1000,0x2000,0x4000,0x8000, 0x0100,0x0200, 0x0020,0x0010, 0x0400,0
 
 class PadX:
     def __init__(self, slot: int): self.slot, self.st = slot, _ST()
+    def label(self): return f"XInput controller slot {self.slot}"
     def ok(self): return _x and _x.XInputGetState(self.slot, ctypes.byref(self.st)) == 0
     def btn(self,i): return bool(self.st.Gamepad.wButtons & BTN_MASKS[i])
     def axis(self,i):
@@ -157,6 +166,96 @@ class PadX:
         return ((1 if w&0x0008 else 0)+(-1 if w&0x0004 else 0),
                 (1 if w&0x0001 else 0)+(-1 if w&0x0002 else 0))
     def raw(self): return self.st.Gamepad.wButtons
+
+# SDL controller backend. SDL normalizes DS4, Xbox, and many other pads to a common gamepad layout.
+SDL_BUTTONS = None
+SDL_AXES = None
+
+def init_sdl():
+    global SDL_BUTTONS, SDL_AXES
+    if pygame is None or sdl_controller is None:
+        return False
+    if not pygame.get_init():
+        pygame.init()
+    try:
+        sdl_controller.init()
+    except Exception:
+        return False
+    SDL_BUTTONS = [
+        pygame.CONTROLLER_BUTTON_A,
+        pygame.CONTROLLER_BUTTON_B,
+        pygame.CONTROLLER_BUTTON_X,
+        pygame.CONTROLLER_BUTTON_Y,
+        pygame.CONTROLLER_BUTTON_LEFTSHOULDER,
+        pygame.CONTROLLER_BUTTON_RIGHTSHOULDER,
+        pygame.CONTROLLER_BUTTON_BACK,
+        pygame.CONTROLLER_BUTTON_START,
+        pygame.CONTROLLER_BUTTON_GUIDE,
+        pygame.CONTROLLER_BUTTON_LEFTSTICK,
+        pygame.CONTROLLER_BUTTON_RIGHTSTICK,
+    ]
+    SDL_AXES = [
+        pygame.CONTROLLER_AXIS_LEFTX,
+        pygame.CONTROLLER_AXIS_LEFTY,
+        pygame.CONTROLLER_AXIS_TRIGGERLEFT,
+        pygame.CONTROLLER_AXIS_RIGHTX,
+        pygame.CONTROLLER_AXIS_RIGHTY,
+        pygame.CONTROLLER_AXIS_TRIGGERRIGHT,
+    ]
+    return True
+
+def norm_sdl_axis(value):
+    if value < 0:
+        return max(-1.0, value / 32768.0)
+    return min(1.0, value / 32767.0)
+
+def norm_sdl_trigger(value):
+    # SDL controllers usually expose triggers as 0..32767, but some virtual devices use -32768..32767.
+    if value < 0:
+        return max(0.0, min(1.0, (value + 32768) / 65535.0))
+    return max(0.0, min(1.0, value / 32767.0))
+
+class PadSDL:
+    def __init__(self, index: int):
+        if not init_sdl():
+            raise RuntimeError("pygame SDL controller backend is unavailable")
+        if index < 0 or index >= sdl_controller.get_count():
+            raise RuntimeError(f"SDL controller index {index} is out of range")
+        if not sdl_controller.is_controller(index):
+            raise RuntimeError(f"SDL device {index} is not recognized as a game controller")
+        self.index = index
+        self.ctrl = sdl_controller.Controller(index)
+        self.ctrl.init()
+        self.name = self.ctrl.name
+    def label(self): return f"SDL controller {self.index}: {self.name}"
+    def ok(self):
+        if pygame:
+            pygame.event.pump()
+        return self.ctrl.attached()
+    def btn(self,i):
+        if pygame:
+            pygame.event.pump()
+        return bool(self.ctrl.get_button(SDL_BUTTONS[i]))
+    def axis(self,i):
+        if pygame:
+            pygame.event.pump()
+        value = self.ctrl.get_axis(SDL_AXES[i])
+        if i in (2, 5):
+            return norm_sdl_trigger(value)
+        normalized = norm_sdl_axis(value)
+        if i in (1, 4):
+            return -normalized
+        return normalized
+    def hat(self):
+        x = (1 if self.ctrl.get_button(pygame.CONTROLLER_BUTTON_DPAD_RIGHT) else 0) + (-1 if self.ctrl.get_button(pygame.CONTROLLER_BUTTON_DPAD_LEFT) else 0)
+        y = (1 if self.ctrl.get_button(pygame.CONTROLLER_BUTTON_DPAD_UP) else 0) + (-1 if self.ctrl.get_button(pygame.CONTROLLER_BUTTON_DPAD_DOWN) else 0)
+        return (x, y)
+    def raw(self):
+        bits = 0
+        for i, button in enumerate(SDL_BUTTONS):
+            if self.ctrl.get_button(button):
+                bits |= 1 << i
+        return bits
 
 # ───────── Keyboard+Mouse backend (FPS layout with recenter) ─────────
 KEY_MAPPING = {0:'ctrl',1:'space',2:'r',3:'e',4:'q',5:'f',6:'tab',7:'enter',9:'v',10:'x'}
@@ -172,6 +271,7 @@ class PadK:
             user32.SetCursorPos(center[0], center[1])
             self.prev_x, self.prev_y = center
     def ok(self): return True
+    def label(self): return "keyboard/mouse"
     def btn(self,i): key=KEY_MAPPING.get(i); return keyboard.is_pressed(key) if key else False
     def axis(self,i):
         # left stick via WASD
@@ -206,8 +306,8 @@ def build_packet(p):
     if isinstance(p,PadK):
         if keyboard and keyboard.is_pressed('h'): b|=1<<12
         if keyboard and keyboard.is_pressed('c'): b|=1<<13
-    if isinstance(p,PadX) and p.btn(6) and p.btn(7): b|=1<<12
-    if isinstance(p,PadX):
+    if isinstance(p,(PadX,PadSDL)) and ((p.btn(6) and p.btn(7)) or p.btn(8)): b|=1<<12
+    if isinstance(p,(PadX,PadSDL)):
         if p.axis(2)>0.5: b|=1<<6
         if p.axis(5)>0.5: b|=1<<7
     else:
@@ -259,12 +359,79 @@ def detect_controller_slot(log):
         log(f"No XInput controller in slot {slot}.")
     return None
 
+def describe_sdl_controllers(log):
+    if not init_sdl():
+        log("pygame SDL controller backend is unavailable.")
+        return
+    count = sdl_controller.get_count()
+    log(f"SDL controller devices: {count}")
+    if count == 0:
+        return
+    for index in range(count):
+        is_controller = sdl_controller.is_controller(index)
+        try:
+            name = sdl_controller.name_forindex(index)
+        except Exception as exc:
+            name = f"<name unavailable: {exc}>"
+        log(f"  SDL {index}: controller={is_controller} name={name}")
+
+def detect_sdl_controller_index(log):
+    if not init_sdl():
+        log("pygame SDL controller backend is unavailable.")
+        return None
+    for index in range(sdl_controller.get_count()):
+        if sdl_controller.is_controller(index):
+            try:
+                pad = PadSDL(index)
+                if pad.ok():
+                    log(f"Detected SDL controller {index}: {pad.name}.")
+                    return index
+            except Exception as exc:
+                log(f"SDL controller {index} could not be opened: {exc}")
+        else:
+            log(f"SDL device {index} is not recognized as a game controller.")
+    return None
+
+def create_controller(args, log):
+    backend = args.backend
+    selected = args.controller
+
+    if backend in ("xinput", "auto"):
+        controller_slot = selected
+        if controller_slot is None and args.auto:
+            controller_slot = detect_controller_slot(log)
+        if controller_slot is not None:
+            pad = PadX(controller_slot)
+            if pad.ok():
+                if args.startup_debug:
+                    log(f"Using XInput controller slot {pad.slot}.")
+                return pad
+            if backend == "xinput":
+                log("Selected XInput controller is not connected.")
+
+    if backend in ("pygame", "auto"):
+        controller_index = selected
+        if controller_index is None and args.auto:
+            controller_index = detect_sdl_controller_index(log)
+        if controller_index is not None:
+            try:
+                pad = PadSDL(controller_index)
+                if pad.ok():
+                    if args.startup_debug:
+                        log(f"Using SDL controller {pad.index}: {pad.name}.")
+                    return pad
+            except Exception as exc:
+                log(f"Selected SDL controller could not be opened: {exc}")
+
+    return None
+
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("--keyboard",action="store_true")
     ap.add_argument("--port")
     ap.add_argument("--baud",type=int,default=BAUD_DEF)
     ap.add_argument("--controller",type=int)
+    ap.add_argument("--backend",choices=("auto","xinput","pygame"),default="xinput")
     ap.add_argument("--window")
     ap.add_argument("--auto",action="store_true")
     ap.add_argument("--debug",action="store_true")
@@ -290,6 +457,7 @@ if __name__=="__main__":
 
     if args.diagnose:
         detect_controller_slot(log)
+        describe_sdl_controllers(log)
         log("Diagnostics complete.")
         sys.exit(0)
 
@@ -319,18 +487,13 @@ if __name__=="__main__":
     if args.keyboard:
         pad=PadK(center)
     else:
-        controller_slot = args.controller
-        if controller_slot is None and args.auto:
-            controller_slot = detect_controller_slot(log)
-        if controller_slot is None:
-            log("No XInput controller selected or detected.")
+        pad=create_controller(args, log)
+        if pad is None:
+            log(f"No controller selected or detected for backend '{args.backend}'.")
             sys.exit("Controller not connected")
-        pad=PadX(controller_slot)
     if not pad.ok():
         log("Controller not connected.")
         sys.exit("Controller not connected")
-    if args.startup_debug and isinstance(pad, PadX):
-        log(f"Using XInput controller slot {pad.slot}.")
 
     try:
         ser=UART(port,args.baud)
@@ -351,7 +514,7 @@ if __name__=="__main__":
     if args.startup_debug:
         log("MCU sync succeeded.")
     if args.debug:
-        src="keyboard" if args.keyboard else f"controller slot {pad.slot}"
+        src=pad.label() if hasattr(pad, "label") else "controller"
         print(f"Using {src} -> COM {port} @ {args.baud} baud")
 
     neutral=Packet(0,8,0,0,0,0)
@@ -376,7 +539,10 @@ if __name__=="__main__":
                     ser.write(neutral.pack())
                     if args.debug: print("Pad lost - neutral")
                 time.sleep(RETRY)
-                pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else 0)
+                pad=PadK(center) if args.keyboard else create_controller(args, log)
+                if pad is None:
+                    time.sleep(RETRY)
+                    continue
                 continue
 
             focused=(not args.window) or focus_ok(args.window)

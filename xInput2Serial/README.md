@@ -31,6 +31,10 @@ python xinput2serial.py [options]
 ##### Options
 
 - `--auto`                 Auto-select first COM port and controller  
+- `--backend auto|xinput|pygame`
+                           Controller backend to use. `xinput` supports Xbox/XInput devices.
+                           `pygame` supports SDL-recognized controllers such as DS4.
+                           `auto` tries XInput first, then pygame/SDL.
 - `--port COMx`            Specify a COM port  
 - `--baud N`               Set baud rate (default: 1_000_000)  
 - `--controller N`         Specify XInput controller slot (0–3)  
@@ -41,6 +45,26 @@ python xinput2serial.py [options]
 
 ```bash
 python xinput2serial.py --auto --window "OBS (Preview)" --debug
+```
+
+##### Sunshine Auto / DS4 manual test
+
+With Moonlight connected and Sunshine's `Emulated Gamepad Type` set to `Auto`, first confirm the bridge can see the controller:
+
+```powershell
+py -3 "C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py" --diagnose --backend auto --log-file "C:\Nintendo Automation\xInput-Switch\Playnite Launcher Scripts\xinput2serial-backend-diagnose.log"
+```
+
+If XInput is unavailable but SDL lists a DS4/Sony controller, test the full bridge without Playnite:
+
+```powershell
+py -3 "C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py" --auto --backend pygame --port COM3 --controller 0 --startup-debug --debug --log-file "C:\Nintendo Automation\xInput-Switch\Playnite Launcher Scripts\xinput2serial-ds4-manual.log"
+```
+
+If you want the bridge to prefer XInput when available and fall back to DS4/SDL, use:
+
+```powershell
+py -3 "C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py" --auto --backend auto --port COM3 --startup-debug --debug --log-file "C:\Nintendo Automation\xInput-Switch\Playnite Launcher Scripts\xinput2serial-auto-manual.log"
 ```
 
 #### Wiring

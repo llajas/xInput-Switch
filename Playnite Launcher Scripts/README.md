@@ -83,6 +83,8 @@ Use keyboard/mouse mode instead of an Xbox/XInput controller:
 $useKeyboardMouse = $true
 ```
 
+The Playnite launcher starts the bridge with `--backend auto`, which tries XInput first and then pygame/SDL for Sunshine `Auto` devices such as DS4.
+
 Logs are written to:
 
 ```text

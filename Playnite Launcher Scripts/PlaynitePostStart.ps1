@@ -66,7 +66,7 @@ if (-not $projectorProc.HasExited) {
     throw "OBS projector script failed with exit code $($projectorProc.ExitCode)."
 }
 
-$xinputArgs = @($xinputScript, "--auto", "--startup-debug", "--log-file", $bridgeLogFile)
+$xinputArgs = @($xinputScript, "--auto", "--backend", "auto", "--startup-debug", "--log-file", $bridgeLogFile)
 if ($bindToProjectorFocus) {
     $xinputArgs += @("--window", $projectorTitle, "--inactive-action", "home")
 }
