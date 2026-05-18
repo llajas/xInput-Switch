@@ -502,7 +502,7 @@ def build_packet(p):
     if isinstance(p,(PadX,PadSDL)):
         if p.axis(2)>0.5: b|=1<<6
         if p.axis(5)>0.5: b|=1<<7
-    else:
+    elif isinstance(p,PadK):
         if keyboard and keyboard.is_pressed('shift'): b|=1<<6
         if keyboard and keyboard.is_pressed('ctrl'):  b|=1<<7
     hx,hy=p.hat()
