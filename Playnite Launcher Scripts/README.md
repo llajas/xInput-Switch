@@ -62,9 +62,10 @@ Most settings are near the top of `PlaynitePostStart.ps1`:
 ```powershell
 $projectorTitle = "Windowed Projector (Source) - Scene"
 $useKeyboardMouse = $false
-$debugBridge = $false
-$serialPort = $null
-$controllerSlot = $null
+$debugBridge = $true
+$serialPort = "COM3"
+$controllerSlot = 0
+$bindToProjectorFocus = $true
 ```
 
 Set explicit hardware options like this if auto-detection is unreliable:
@@ -73,6 +74,8 @@ Set explicit hardware options like this if auto-detection is unreliable:
 $serialPort = "COM3"
 $controllerSlot = 0
 ```
+
+`$bindToProjectorFocus` controls whether input is only streamed while the OBS projector window is focused. When it is `true`, focus loss sends a short HOME press to the Switch, then neutral packets until the projector is focused again.
 
 Use keyboard/mouse mode instead of an Xbox/XInput controller:
 

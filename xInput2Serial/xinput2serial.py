@@ -197,6 +197,7 @@ class PadK:
 
 BTN_MAP={0:1<<1,1:1<<2,2:1<<0,3:1<<3,4:1<<4,5:1<<5,6:1<<8,7:1<<9,9:1<<10,10:1<<11}
 HAT_MAP={(0,1):0,(1,1):1,(1,0):2,(1,-1):3,(0,-1):4,(-1,-1):5,(-1,0):6,(-1,1):7,(0,0):8}
+SWITCH_HOME = 1 << 12
 
 def build_packet(p):
     b=0
@@ -222,9 +223,14 @@ def describe_ports():
     ]
 
 list_ports=lambda:[p.device for p in serial.tools.list_ports.comports()]
+def foreground_title():
+    if win32gui is None:
+        return ""
+    return win32gui.GetWindowText(win32gui.GetForegroundWindow())
+
 def focus_ok(title:str):
     if win32gui is None: return True
-    return title.lower() in win32gui.GetWindowText(win32gui.GetForegroundWindow()).lower()
+    return title.lower() in foreground_title().lower()
 
 def make_logger(path):
     if not path:
@@ -234,8 +240,11 @@ def make_logger(path):
     def _log(msg):
         line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
         print(line, flush=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        try:
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        except OSError as exc:
+            print(f"[logger] unable to write to {log_path}: {exc}", flush=True)
     return _log
 
 def detect_controller_slot(log):
@@ -263,6 +272,10 @@ if __name__=="__main__":
     ap.add_argument("--startup-debug",action="store_true")
     ap.add_argument("--diagnose",action="store_true",help="Print COM and XInput detection details, then exit.")
     ap.add_argument("--sync-attempts",type=int,default=3)
+    ap.add_argument("--inactive-action",choices=("neutral","home","none"),default="neutral")
+    ap.add_argument("--disconnect-action",choices=("neutral","home","none"),default="neutral")
+    ap.add_argument("--home-duration",type=float,default=0.25)
+    ap.add_argument("--home-cooldown",type=float,default=5.0)
     args=ap.parse_args()
     log = make_logger(args.log_file)
 
@@ -339,22 +352,60 @@ if __name__=="__main__":
         log("MCU sync succeeded.")
     if args.debug:
         src="keyboard" if args.keyboard else f"controller slot {pad.slot}"
-        print(f"Using {src} → COM {port} @ {args.baud} baud")
+        print(f"Using {src} -> COM {port} @ {args.baud} baud")
 
     neutral=Packet(0,8,0,0,0,0)
+    home=Packet(SWITCH_HOME,8,0,0,0,0)
     was_focused=True
+    last_focus_state=None
+    last_inactive_home=0.0
+    inactive_home_until=0.0
+    last_disconnect_home=0.0
+    disconnect_home_until=0.0
     try:
         while True:
+            now=time.time()
             if not pad.ok():
-                ser.write(neutral.pack())
-                if args.debug: print("Pad lost – neutral")
+                if args.disconnect_action == "home" and now - last_disconnect_home >= args.home_cooldown:
+                    last_disconnect_home = now
+                    disconnect_home_until = now + args.home_duration
+                    if args.debug: print("Pad lost - HOME")
+                if now < disconnect_home_until:
+                    ser.write(home.pack())
+                elif args.disconnect_action != "none":
+                    ser.write(neutral.pack())
+                    if args.debug: print("Pad lost - neutral")
                 time.sleep(RETRY)
                 pad=PadK(center) if args.keyboard else PadX(args.controller if args.controller is not None else 0)
                 continue
-            if not ((not args.window) or focus_ok(args.window)):
-                if was_focused and args.debug: print("Window inactive – neutral")
-                ser.write(neutral.pack()); was_focused=False; time.sleep(SEND); continue
-            if not was_focused and args.debug: print("Window active – streaming")
+
+            focused=(not args.window) or focus_ok(args.window)
+            if last_focus_state is None or focused != last_focus_state:
+                last_focus_state=focused
+                if args.startup_debug:
+                    state="active" if focused else "inactive"
+                    log(f"Window focus is {state}. Foreground='{foreground_title()}'")
+
+            if not focused:
+                if was_focused and args.inactive_action == "home":
+                    last_inactive_home = now
+                    inactive_home_until = now + args.home_duration
+                    if args.debug: print("Window inactive - HOME")
+                elif args.inactive_action == "home" and now - last_inactive_home >= args.home_cooldown:
+                    last_inactive_home = now
+                    inactive_home_until = now + args.home_duration
+                    if args.debug: print("Window inactive - HOME")
+                elif was_focused and args.debug:
+                    print("Window inactive - neutral")
+
+                if now < inactive_home_until:
+                    ser.write(home.pack())
+                elif args.inactive_action != "none":
+                    ser.write(neutral.pack())
+                was_focused=False
+                time.sleep(SEND)
+                continue
+            if not was_focused and args.debug: print("Window active - streaming")
             was_focused=True
             pkt,bits=build_packet(pad)
             ser.write(pkt.pack())

@@ -4,11 +4,47 @@
 
 $ErrorActionPreference = "Stop"
 
-$projectorTitle = "Windowed Projector (Source) - Scene"
+$projectorTitle = "Projector"
 $startupTimeoutSeconds = 45
 $pollSeconds = 1
 $baseDir = "C:\Nintendo Automation\xInput-Switch"
 $logFile = Join-Path $baseDir "Playnite Launcher Scripts\playnite-switch-session.log"
+
+if (-not ("Win32Window" -as [type])) {
+    Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public static class Win32Window
+{
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+}
+"@
+}
+
+$consoleWindow = [Win32Window]::GetConsoleWindow()
+if ($consoleWindow -ne [IntPtr]::Zero) {
+    [Win32Window]::ShowWindow($consoleWindow, 0) | Out-Null
+}
 
 function Write-SwitchLog {
     param([string]$Message)
@@ -17,9 +53,36 @@ function Write-SwitchLog {
 }
 
 function Test-ProjectorWindow {
-    Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -like "*$projectorTitle*" } |
-        Select-Object -First 1
+    $script:ProjectorWindowFound = $false
+    $script:ProjectorWindowTitle = $null
+
+    $callback = [Win32Window+EnumWindowsProc]{
+        param([IntPtr]$hWnd, [IntPtr]$lParam)
+
+        if (-not [Win32Window]::IsWindowVisible($hWnd)) {
+            return $true
+        }
+
+        $length = [Win32Window]::GetWindowTextLength($hWnd)
+        if ($length -le 0) {
+            return $true
+        }
+
+        $builder = New-Object System.Text.StringBuilder ($length + 1)
+        [Win32Window]::GetWindowText($hWnd, $builder, $builder.Capacity) | Out-Null
+        $title = $builder.ToString()
+
+        if ($title -like "*$projectorTitle*") {
+            $script:ProjectorWindowFound = $true
+            $script:ProjectorWindowTitle = $title
+            return $false
+        }
+
+        return $true
+    }
+
+    [Win32Window]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
+    return $script:ProjectorWindowFound
 }
 
 Write-SwitchLog "Session host started; waiting for projector window."
@@ -27,7 +90,7 @@ Write-SwitchLog "Session host started; waiting for projector window."
 $deadline = (Get-Date).AddSeconds($startupTimeoutSeconds)
 while ((Get-Date) -lt $deadline) {
     if (Test-ProjectorWindow) {
-        Write-SwitchLog "Projector window detected; session host is tracking it."
+        Write-SwitchLog "Projector window detected; session host is tracking '$script:ProjectorWindowTitle'."
         break
     }
 
