@@ -6,9 +6,12 @@ $ErrorActionPreference = "Stop"
 
 $projectorTitle = "Projector"
 $startupTimeoutSeconds = 45
+$missingWindowGraceSeconds = 15
 $pollSeconds = 1
 $baseDir = "C:\Nintendo Automation\xInput-Switch"
 $logFile = Join-Path $baseDir "Playnite Launcher Scripts\playnite-switch-session.log"
+$settingsFile = Join-Path $baseDir "config\switch_automation.settings.json"
+$sessionExitSignalFile = Join-Path $baseDir "Playnite Launcher Scripts\switch-session-exit.signal"
 
 if (-not ("Win32Window" -as [type])) {
     Add-Type @"
@@ -37,6 +40,9 @@ public static class Win32Window
 
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 }
@@ -52,9 +58,35 @@ function Write-SwitchLog {
     Add-Content -Path $logFile -Value $line
 }
 
+function Get-Setting {
+    param(
+        [object]$Settings,
+        [string]$Name,
+        [object]$Default
+    )
+    if ($null -ne $Settings -and $Settings.PSObject.Properties.Name -contains $Name -and $null -ne $Settings.$Name) {
+        return $Settings.$Name
+    }
+    return $Default
+}
+
+$settings = $null
+if (Test-Path -LiteralPath $settingsFile) {
+    try {
+        $settings = Get-Content -Path $settingsFile -Raw | ConvertFrom-Json
+        $projectorTitle = [string](Get-Setting $settings "projectorTitle" $projectorTitle)
+        $sessionExitSignalFile = [string](Get-Setting $settings "sessionExitSignalFile" $sessionExitSignalFile)
+        Write-SwitchLog "Session host loaded settings from $settingsFile."
+    }
+    catch {
+        Write-SwitchLog "Session host could not load settings from $settingsFile. Using defaults. Error: $($_.Exception.Message)"
+    }
+}
+
 function Test-ProjectorWindow {
     $script:ProjectorWindowFound = $false
     $script:ProjectorWindowTitle = $null
+    $script:ProjectorWindowHandle = [IntPtr]::Zero
 
     $callback = [Win32Window+EnumWindowsProc]{
         param([IntPtr]$hWnd, [IntPtr]$lParam)
@@ -75,6 +107,7 @@ function Test-ProjectorWindow {
         if ($title -like "*$projectorTitle*") {
             $script:ProjectorWindowFound = $true
             $script:ProjectorWindowTitle = $title
+            $script:ProjectorWindowHandle = $hWnd
             return $false
         }
 
@@ -83,6 +116,13 @@ function Test-ProjectorWindow {
 
     [Win32Window]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
     return $script:ProjectorWindowFound
+}
+
+function Close-ProjectorWindow {
+    if (Test-ProjectorWindow -and $script:ProjectorWindowHandle -ne [IntPtr]::Zero) {
+        Write-SwitchLog "Closing projector window '$script:ProjectorWindowTitle' due to session exit signal."
+        [Win32Window]::PostMessage($script:ProjectorWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    }
 }
 
 Write-SwitchLog "Session host started; waiting for projector window."
@@ -102,7 +142,33 @@ if (-not (Test-ProjectorWindow)) {
     exit 1
 }
 
-while (Test-ProjectorWindow) {
+$missingSince = $null
+while ($true) {
+    if (Test-Path -LiteralPath $sessionExitSignalFile) {
+        Write-SwitchLog "Session exit signal detected."
+        Remove-Item -LiteralPath $sessionExitSignalFile -Force -ErrorAction SilentlyContinue
+        Close-ProjectorWindow
+        break
+    }
+
+    if (Test-ProjectorWindow) {
+        if ($null -ne $missingSince) {
+            Write-SwitchLog "Projector window recovered; tracking '$script:ProjectorWindowTitle'."
+            $missingSince = $null
+        }
+        Start-Sleep -Seconds $pollSeconds
+        continue
+    }
+
+    if ($null -eq $missingSince) {
+        $missingSince = Get-Date
+        Write-SwitchLog "Projector window is not currently visible; waiting up to $missingWindowGraceSeconds seconds before exiting."
+    }
+
+    if (((Get-Date) - $missingSince).TotalSeconds -ge $missingWindowGraceSeconds) {
+        break
+    }
+
     Start-Sleep -Seconds $pollSeconds
 }
 

@@ -31,6 +31,8 @@ __pycache__/
 *.pyc
 .env
 *.pid
+*-status.json
+*.signal
 
 # MacOS
 .DS_Store

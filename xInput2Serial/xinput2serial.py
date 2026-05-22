@@ -310,20 +310,28 @@ SOCKET_DPAD = {
 }
 
 class PadSocket:
-    def __init__(self, host, port, log=None):
+    def __init__(self, host, port, log=None, status_file=None):
         self.host = host
         self.port = port
         self.log = log or (lambda _msg: None)
+        self.status_file = Path(status_file) if status_file else None
         self.lock = threading.Lock()
         self.button_until = {}
         self.extra_until = {}
         self.axis_until = {}
         self.hat_until = 0.0
         self.hat_value = (0, 0)
+        self.active_peers = 0
+        self.total_connections = 0
+        self.total_events = 0
+        self.last_peer = ""
+        self.last_event = ""
+        self.last_event_at = ""
         self.running = True
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.thread.start()
         self.log(f"Socket input listening on {host}:{port}.")
+        self._write_status("listening")
 
     def label(self): return f"socket input {self.host}:{self.port}"
     def ok(self): return self.running
@@ -360,30 +368,68 @@ class PadSocket:
             if self.hat_until <= now:
                 self.hat_value = (0, 0)
 
+    def _write_status(self, state=None):
+        if not self.status_file:
+            return
+        with self.lock:
+            data = {
+                "state": state or ("listening" if self.running else "stopped"),
+                "host": self.host,
+                "port": self.port,
+                "activePeers": self.active_peers,
+                "totalConnections": self.total_connections,
+                "totalEvents": self.total_events,
+                "lastPeer": self.last_peer,
+                "lastEvent": self.last_event,
+                "lastEventAt": self.last_event_at,
+                "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
+        try:
+            self.status_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.status_file.with_name(f"{self.status_file.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            tmp.replace(self.status_file)
+        except OSError as exc:
+            self.log(f"Socket status write failed: {exc}")
+
     def _serve(self):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server.bind((self.host, self.port))
                 server.listen()
+                self._write_status("listening")
                 while self.running:
                     conn, addr = server.accept()
+                    with self.lock:
+                        self.active_peers += 1
+                        self.total_connections += 1
+                        self.last_peer = f"{addr[0]}:{addr[1]}"
+                    self.log(f"Socket peer connected: {addr[0]}:{addr[1]}.")
+                    self._write_status("connected")
                     threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()
         except OSError as exc:
             self.running = False
             self.log(f"Socket input stopped: {exc}")
+            self._write_status("stopped")
 
     def _handle_client(self, conn, addr):
-        with conn:
-            buf = b""
-            while True:
-                chunk = conn.recv(4096)
-                if not chunk:
-                    break
-                buf += chunk
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    self._handle_line(line.decode("utf-8", errors="replace").strip(), addr)
+        try:
+            with conn:
+                buf = b""
+                while True:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        self._handle_line(line.decode("utf-8", errors="replace").strip(), addr)
+        finally:
+            with self.lock:
+                self.active_peers = max(0, self.active_peers - 1)
+            self.log(f"Socket peer disconnected: {addr[0]}:{addr[1]}.")
+            self._write_status("listening")
 
     def _handle_line(self, line, addr):
         if not line:
@@ -392,7 +438,13 @@ class PadSocket:
             event = json.loads(line)
         except json.JSONDecodeError:
             event = {"command": line}
+        with self.lock:
+            self.total_events += 1
+            self.last_peer = f"{addr[0]}:{addr[1]}"
+            self.last_event = str(event.get("command") or event.get("button") or event.get("dpad") or event.get("buttons") or event.get("commands") or "input")
+            self.last_event_at = datetime.now().astimezone().isoformat(timespec="seconds")
         self.apply_event(event)
+        self._write_status("connected")
 
     def apply_event(self, event):
         duration = max(0.01, min(float(event.get("duration", 0.2)), 5.0))
@@ -488,6 +540,28 @@ class PadK:
 BTN_MAP={0:1<<1,1:1<<2,2:1<<0,3:1<<3,4:1<<4,5:1<<5,6:1<<8,7:1<<9,9:1<<10,10:1<<11}
 HAT_MAP={(0,1):0,(1,1):1,(1,0):2,(1,-1):3,(0,-1):4,(-1,-1):5,(-1,0):6,(-1,1):7,(0,0):8}
 SWITCH_HOME = 1 << 12
+
+def exit_chord_pressed(p):
+    if not isinstance(p, (PadX, PadSDL)):
+        return False
+    return (
+        p.btn(4) and
+        p.btn(5) and
+        p.btn(6) and
+        p.axis(2) > 0.5 and
+        p.axis(5) > 0.5
+    )
+
+def write_exit_signal(path, log):
+    if not path:
+        return
+    signal_path = Path(path)
+    try:
+        signal_path.parent.mkdir(parents=True, exist_ok=True)
+        signal_path.write_text(f"{datetime.now().astimezone().isoformat(timespec='seconds')}\n", encoding="utf-8")
+        log(f"Session exit signal written to {signal_path}.")
+    except OSError as exc:
+        log(f"Unable to write session exit signal to {signal_path}: {exc}")
 
 def build_packet(p):
     b=0
@@ -589,7 +663,7 @@ def create_controller(args, log):
     selected = args.controller
 
     if backend == "socket":
-        return PadSocket(args.socket_host, args.socket_port, log)
+        return PadSocket(args.socket_host, args.socket_port, log, args.socket_status_file)
 
     if backend in ("xinput", "auto"):
         controller_slot = selected
@@ -629,6 +703,7 @@ if __name__=="__main__":
     ap.add_argument("--backend",choices=("auto","xinput","pygame","socket"),default="xinput")
     ap.add_argument("--socket-host",default="127.0.0.1")
     ap.add_argument("--socket-port",type=int,default=8765)
+    ap.add_argument("--socket-status-file")
     ap.add_argument("--window")
     ap.add_argument("--auto",action="store_true")
     ap.add_argument("--debug",action="store_true")
@@ -640,6 +715,7 @@ if __name__=="__main__":
     ap.add_argument("--disconnect-action",choices=("neutral","home","none"),default="neutral")
     ap.add_argument("--home-duration",type=float,default=0.25)
     ap.add_argument("--home-cooldown",type=float,default=5.0)
+    ap.add_argument("--exit-chord-signal-file")
     args=ap.parse_args()
     log = make_logger(args.log_file)
 
@@ -718,7 +794,6 @@ if __name__=="__main__":
     home=Packet(SWITCH_HOME,8,0,0,0,0)
     was_focused=True
     last_focus_state=None
-    last_inactive_home=0.0
     inactive_home_until=0.0
     last_disconnect_home=0.0
     disconnect_home_until=0.0
@@ -751,11 +826,6 @@ if __name__=="__main__":
 
             if not focused:
                 if was_focused and args.inactive_action == "home":
-                    last_inactive_home = now
-                    inactive_home_until = now + args.home_duration
-                    if args.debug: print("Window inactive - HOME")
-                elif args.inactive_action == "home" and now - last_inactive_home >= args.home_cooldown:
-                    last_inactive_home = now
                     inactive_home_until = now + args.home_duration
                     if args.debug: print("Window inactive - HOME")
                 elif was_focused and args.debug:
@@ -770,6 +840,15 @@ if __name__=="__main__":
                 continue
             if not was_focused and args.debug: print("Window active - streaming")
             was_focused=True
+            if args.exit_chord_signal_file and exit_chord_pressed(pad):
+                log("Exit chord detected; sending HOME pulse and ending session.")
+                end = time.time() + args.home_duration
+                while time.time() < end:
+                    ser.write(home.pack())
+                    time.sleep(SEND)
+                ser.write(neutral.pack())
+                write_exit_signal(args.exit_chord_signal_file, log)
+                break
             pkt,bits=build_packet(pad)
             ser.write(pkt.pack())
             if args.debug: print(f"buttons=0x{bits:04X} raw=0x{pad.raw():04X} pkt={pkt.pack().hex()}")

@@ -57,33 +57,40 @@ Use the matching line in the matching Playnite event box. Pasting the full scrip
 
 #### Configuration
 
-Most settings are near the top of `PlaynitePostStart.ps1`:
+Playnite reads shared settings from:
+
+```text
+C:\Nintendo Automation\xInput-Switch\config\switch_automation.settings.json
+```
+
+You can edit that file directly, or run the GUI:
 
 ```powershell
-$projectorTitle = "Windowed Projector (Source) - Scene"
-$useKeyboardMouse = $false
-$debugBridge = $true
-$serialPort = "COM3"
-$controllerSlot = 0
-$bindToProjectorFocus = $true
+& "C:\Nintendo Automation\xInput-Switch\Start Switch Automation GUI.cmd"
 ```
 
 Set explicit hardware options like this if auto-detection is unreliable:
 
-```powershell
-$serialPort = "COM3"
-$controllerSlot = 0
+```json
+{
+  "serialPort": "COM3",
+  "controllerSlot": 0
+}
 ```
 
-`$bindToProjectorFocus` controls whether input is only streamed while the OBS projector window is focused. When it is `true`, focus loss sends a short HOME press to the Switch, then neutral packets until the projector is focused again.
+`bindToProjectorFocus` controls whether input is only streamed while the OBS projector window is focused. When it is `true`, focus loss sends the configured `inactiveAction`, then neutral packets until the projector is focused again.
 
 Use keyboard/mouse mode instead of an Xbox/XInput controller:
 
-```powershell
-$useKeyboardMouse = $true
+```json
+{
+  "mode": "keyboard"
+}
 ```
 
-The Playnite launcher starts the bridge with `--backend auto`, which tries XInput first and then pygame/SDL for Sunshine `Auto` devices such as DS4.
+The default Playnite mode is `controller` with `controllerBackend` set to `auto`, which tries XInput first and then pygame/SDL for Sunshine `Auto` devices such as DS4. `socket` mode is available for Discord or other remote input adapters, but Playnite remains headless either way.
+
+For Discord/socket mode, the GUI can list bindable IPv4 addresses from the local machine. Use `127.0.0.1` when the Discord bot runs on the same PC, use a specific LAN adapter IP when the bot runs from another machine on the same network, and use `0.0.0.0` only when you intentionally want to listen on every IPv4 interface. The bridge writes socket listener status to the configured `socketStatusFile` so the GUI can show active peers and the last received command.
 
 Logs are written to:
 

@@ -1,0 +1,21 @@
+{
+  "pythonExe": "C:\\Python312\\python.exe",
+  "obsDir": "C:\\Program Files\\obs-studio\\bin\\64bit",
+  "obsExe": "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+  "projectorTitle": "Projector",
+  "playniteMode": "controller",
+  "mode": "socket",
+  "controllerBackend": "auto",
+  "serialPort": "COM3",
+  "controllerSlot": 0,
+  "bindToProjectorFocus": true,
+  "inactiveAction": "home",
+  "disconnectAction": "home",
+  "homeDuration": 0.25,
+  "homeCooldown": 5.0,
+  "debugBridge": false,
+  "socketHost": "127.0.0.1",
+  "socketPort": 8765,
+  "socketStatusFile": "C:\\Nintendo Automation\\xInput-Switch\\Playnite Launcher Scripts\\xinput2serial-socket-status.json",
+  "sessionExitSignalFile": "C:\\Nintendo Automation\\xInput-Switch\\Playnite Launcher Scripts\\switch-session-exit.signal"
+}

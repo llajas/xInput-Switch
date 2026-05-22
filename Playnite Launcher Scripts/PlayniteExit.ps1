@@ -41,7 +41,10 @@ function Stop-ProcessById {
 function Stop-XInputBridgeProcesses {
     $pattern = [regex]::Escape("C:\Nintendo Automation\xInput-Switch\xInput2Serial\xinput2serial.py")
     $matches = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match $pattern }
+        Where-Object {
+            $_.Name -in @("python.exe", "pythonw.exe", "py.exe") -and
+            $_.CommandLine -match $pattern
+        }
 
     foreach ($match in $matches) {
         Write-SwitchLog "Stopping lingering xinput2serial process PID $($match.ProcessId)."

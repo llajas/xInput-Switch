@@ -7,12 +7,42 @@ $baseDir = "C:\Nintendo Automation\xInput-Switch"
 $obsDir = "C:\Program Files\obs-studio\bin\64bit"
 $obsExe = Join-Path $obsDir "obs64.exe"
 $logFile = Join-Path $baseDir "Playnite Launcher Scripts\playnite-switch-session.log"
+$settingsFile = Join-Path $baseDir "config\switch_automation.settings.json"
 
 function Write-SwitchLog {
     param([string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Add-Content -Path $logFile -Value $line
 }
+
+function Get-Setting {
+    param(
+        [object]$Settings,
+        [string]$Name,
+        [object]$Default
+    )
+    if ($null -ne $Settings -and $Settings.PSObject.Properties.Name -contains $Name -and $null -ne $Settings.$Name) {
+        return $Settings.$Name
+    }
+    return $Default
+}
+
+$settings = $null
+if (Test-Path -LiteralPath $settingsFile) {
+    try {
+        $settings = Get-Content -Path $settingsFile -Raw | ConvertFrom-Json
+        Write-SwitchLog "Loaded settings from $settingsFile."
+    }
+    catch {
+        Write-SwitchLog "Unable to load settings from $settingsFile. Using built-in defaults. Error: $($_.Exception.Message)"
+    }
+}
+else {
+    Write-SwitchLog "Settings file was not found at $settingsFile. Using built-in defaults."
+}
+
+$obsDir = [string](Get-Setting $settings "obsDir" $obsDir)
+$obsExe = [string](Get-Setting $settings "obsExe" $obsExe)
 
 $global:SwitchAutomation = @{
     BaseDir = $baseDir
